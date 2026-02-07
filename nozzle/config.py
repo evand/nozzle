@@ -121,6 +121,26 @@ def load_config(path):
     }
 
 
+def _parse_length(value):
+    """Parse a length value with optional unit suffix.
+
+    Supports: mm, cm, m, in, ft.  Plain numbers are treated as mm.
+    Returns value in meters.
+    """
+    if isinstance(value, (int, float)):
+        return float(value) * 1e-3  # default: mm
+
+    s = str(value).strip()
+    units = {'mm': 1e-3, 'cm': 1e-2, 'm': 1.0,
+             'in': 0.0254, 'ft': 0.3048}
+    for suffix, factor in sorted(units.items(), key=lambda x: -len(x[0])):
+        if s.endswith(suffix):
+            num = s[:-len(suffix)].strip()
+            return float(num) * factor
+    # No unit suffix — treat as mm
+    return float(s) * 1e-3
+
+
 def build_nozzle_spec(cfg):
     """Convert a resolved config dict into a nozzle specification.
 
@@ -135,12 +155,48 @@ def build_nozzle_spec(cfg):
         type : str — 'conical', 'rao', 'mln', 'tic', 'custom'
         gamma : float
         area_ratio : float
+        throat_radius_m : float or None — physical throat radius in meters
         Additional keys depend on type.
     """
+    from nozzle.gas import area_mach_ratio, mach_from_area_ratio
+
+    gamma = float(cfg.get('gamma', 1.4))
+
+    # --- Resolve throat radius (optional) ---
+    throat_radius_m = None
+    if 'throat_radius' in cfg:
+        throat_radius_m = _parse_length(cfg['throat_radius'])
+
+    # --- Resolve exit condition: exit_radius > M_exit > area_ratio ---
+    area_ratio = None
+    M_exit = None
+
+    if 'exit_radius' in cfg:
+        exit_radius_m = _parse_length(cfg['exit_radius'])
+        if throat_radius_m is None:
+            raise ValueError("exit_radius requires throat_radius to be set")
+        area_ratio = (exit_radius_m / throat_radius_m) ** 2
+    if 'M_exit' in cfg:
+        M_exit = float(cfg['M_exit'])
+        if area_ratio is None:
+            area_ratio = area_mach_ratio(M_exit, gamma)
+    if 'area_ratio' in cfg:
+        if area_ratio is None:
+            area_ratio = float(cfg['area_ratio'])
+        # If M_exit not set, compute from area_ratio
+        if M_exit is None:
+            M_exit = mach_from_area_ratio(area_ratio, gamma=gamma)
+    if area_ratio is None:
+        area_ratio = 10.0  # default
+    if M_exit is None:
+        M_exit = mach_from_area_ratio(area_ratio, gamma=gamma)
+
     spec = {
         'type': cfg.get('type', 'conical'),
-        'gamma': float(cfg.get('gamma', 1.4)),
-        'area_ratio': float(cfg.get('area_ratio', 10)),
+        'gamma': gamma,
+        'area_ratio': area_ratio,
+        'M_exit': M_exit,
+        'throat_radius_m': throat_radius_m,
     }
 
     ntype = spec['type']
@@ -151,14 +207,11 @@ def build_nozzle_spec(cfg):
     elif ntype == 'rao':
         spec['bell_fraction'] = float(cfg.get('bell_fraction', 0.8))
 
-    elif ntype == 'mln':
+    elif ntype in ('mln', 'tic'):
         spec['n_chars'] = int(cfg.get('n_chars', 30))
-        spec['M_exit'] = float(cfg.get('M_exit', 2.0))
-
-    elif ntype == 'tic':
-        spec['n_chars'] = int(cfg.get('n_chars', 30))
-        spec['M_exit'] = float(cfg.get('M_exit', 2.0))
-        spec['truncation_fraction'] = float(cfg.get('truncation_fraction', 0.8))
+        if ntype == 'tic':
+            spec['truncation_fraction'] = float(
+                cfg.get('truncation_fraction', 0.8))
 
     elif ntype == 'custom':
         spec['contour_file'] = cfg.get('contour_file', '')

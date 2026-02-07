@@ -23,6 +23,7 @@ from nozzle.analysis import conical_performance, rao_performance, moc_performanc
 from nozzle.gas import area_mach_ratio, mach_from_area_ratio, thrust_coefficient_ideal
 from nozzle.plots import (
     plot_contour, plot_contour_comparison, plot_performance_comparison,
+    plot_contour_delta,
 )
 
 
@@ -102,6 +103,18 @@ def cmd_run(args):
         plt.close(fig)
         print(f"\nSaved contour comparison to {output_dir / 'contour_comparison.png'}")
 
+        # Delta plots for each pair of contours
+        for i in range(len(contours)):
+            for j in range(i + 1, len(contours)):
+                x_a, y_a, name_a = contours[i]
+                x_b, y_b, name_b = contours[j]
+                fig, _ = plot_contour_delta(x_a, y_a, name_a,
+                                            x_b, y_b, name_b)
+                fname = f'delta_{name_a}_vs_{name_b}.png'
+                fig.savefig(output_dir / fname, dpi=150, bbox_inches='tight')
+                plt.close(fig)
+                print(f"Saved delta plot to {output_dir / fname}")
+
     if len(results) > 1 and 'performance' in outputs:
         perf_data = [(name, r.get('Cf', 0)) for name, r in results.items()
                      if r.get('Cf') is not None]
@@ -112,7 +125,56 @@ def cmd_run(args):
             plt.close(fig)
             print(f"Saved performance comparison to {output_dir / 'performance_comparison.png'}")
 
+    # Export performance summary JSON
+    if 'performance' in outputs:
+        import json
+        summary = {}
+        for name, r in results.items():
+            entry = {'type': r.get('type'), 'gamma': r.get('gamma'),
+                     'area_ratio': r.get('area_ratio')}
+            for key in ('Cf', 'Cf_ideal', 'efficiency', 'M_mean', 'M_exit',
+                        'M_max', 'M_min', 'theta_max_deg', 'lambda',
+                        'theta_n_deg', 'theta_e_deg'):
+                if key in r:
+                    entry[key] = r[key]
+            summary[name] = entry
+        json_path = output_dir / 'summary.json'
+        with open(json_path, 'w') as f:
+            json.dump(summary, f, indent=2)
+        print(f"Saved performance summary to {json_path}")
+
     return 0
+
+
+def _write_contour_csv(path, x, y, name, spec):
+    """Write contour coordinates to CSV.
+
+    Includes dimensional columns (x_mm, y_mm) when throat_radius_m is set.
+    """
+    r_t = spec.get('throat_radius_m')
+    with open(path, 'w') as f:
+        f.write(f"# {name} nozzle contour\n")
+        f.write(f"# type={spec['type']} gamma={spec['gamma']}"
+                f" area_ratio={spec['area_ratio']:.4f}\n")
+        if r_t is not None:
+            f.write(f"# throat_radius={r_t*1e3:.4f} mm\n")
+            f.write("# x/r*,y/r*,x_mm,y_mm\n")
+            for xi, yi in zip(x, y):
+                f.write(f"{xi:.8f},{yi:.8f},"
+                        f"{xi * r_t * 1e3:.6f},{yi * r_t * 1e3:.6f}\n")
+        else:
+            f.write("# x/r*,y/r*\n")
+            for xi, yi in zip(x, y):
+                f.write(f"{xi:.8f},{yi:.8f}\n")
+
+
+def _write_exit_plane_csv(path, y, M, theta, name):
+    """Write exit plane distributions to CSV."""
+    with open(path, 'w') as f:
+        f.write(f"# {name} exit plane distribution\n")
+        f.write("# y/r*,Mach,theta_deg\n")
+        for yi, Mi, ti in zip(y, M, theta):
+            f.write(f"{yi:.8f},{Mi:.8f},{np.degrees(ti):.8f}\n")
 
 
 def _run_single(spec, name, output_dir, outputs):
@@ -146,7 +208,7 @@ def _run_single(spec, name, output_dir, outputs):
               f"Cf={perf['Cf']:.4f} (λ={perf['lambda']:.4f})")
 
     elif ntype == 'mln':
-        M_exit = spec.get('M_exit', mach_from_area_ratio(area_ratio, gamma=gamma))
+        M_exit = spec['M_exit']
         n_chars = spec.get('n_chars', 30)
         x_wall, y_wall, mesh = minimum_length_nozzle(M_exit, n_chars, gamma)
         perf = moc_performance(mesh, gamma)
@@ -158,7 +220,7 @@ def _run_single(spec, name, output_dir, outputs):
               f"M_mean={perf['M_mean']:.3f}, efficiency={perf['efficiency']:.4f}")
 
     elif ntype == 'tic':
-        M_exit = spec.get('M_exit', mach_from_area_ratio(area_ratio, gamma=gamma))
+        M_exit = spec['M_exit']
         n_chars = spec.get('n_chars', 30)
         trunc_frac = spec.get('truncation_fraction', 0.8)
         x_wall, y_wall, mesh = truncated_ideal_contour(
@@ -199,6 +261,19 @@ def _run_single(spec, name, output_dir, outputs):
         fig.savefig(output_dir / f'{name}_contour.png', dpi=150,
                     bbox_inches='tight')
         plt.close(fig)
+
+        # Export contour CSV
+        csv_path = output_dir / f'{name}_contour.csv'
+        _write_contour_csv(csv_path, result['x_wall'], result['y_wall'],
+                           name, spec)
+
+    # Export exit plane CSV for types that have MOC mesh
+    if result.get('mesh') is not None and 'performance' in outputs:
+        mesh = result['mesh']
+        y_exit, M_exit, theta_exit = mesh.get_exit_plane()
+        if len(y_exit) > 1:
+            csv_path = output_dir / f'{name}_exit_plane.csv'
+            _write_exit_plane_csv(csv_path, y_exit, M_exit, theta_exit, name)
 
     return result
 

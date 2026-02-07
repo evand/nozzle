@@ -1,0 +1,20 @@
+# Dimensional input example — physical throat/exit radii
+# nozzle run examples/configs/dimensional.yaml
+
+configs:
+  rao_bell:
+    type: rao
+    gamma: 1.4
+    throat_radius: 15 mm
+    exit_radius: 47.4 mm    # AR ≈ 9.99
+    bell_fraction: 0.8
+
+  mln:
+    type: mln
+    gamma: 1.4
+    throat_radius: 15 mm
+    M_exit: 2.0
+
+outputs:
+  - contour
+  - performance

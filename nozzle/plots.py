@@ -209,3 +209,76 @@ def plot_performance_comparison(results, title="Performance Comparison"):
 
     fig.tight_layout()
     return fig, ax
+
+
+def plot_contour_delta(x_a, y_a, label_a, x_b, y_b, label_b, title=None):
+    """Plot shape difference between two contours.
+
+    Two panels: true-scale (same aspect as contour plot) and exaggerated
+    (auto-scaled y to show detail).
+
+    Parameters
+    ----------
+    x_a, y_a : ndarray
+        First contour (reference).
+    label_a : str
+        Name of first contour.
+    x_b, y_b : ndarray
+        Second contour (comparison).
+    label_b : str
+        Name of second contour.
+    title : str or None
+
+    Returns
+    -------
+    fig, axes
+    """
+    # Common x grid over shared domain
+    x_lo = max(x_a[0], x_b[0])
+    x_hi = min(x_a[-1], x_b[-1])
+    x_common = np.linspace(x_lo, x_hi, 500)
+
+    ya_interp = np.interp(x_common, x_a, y_a)
+    yb_interp = np.interp(x_common, x_b, y_b)
+    dy = ya_interp - yb_interp
+
+    if title is None:
+        title = f"Shape Delta: {label_a} \u2212 {label_b}"
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+    # Panel 1: true scale
+    ax = axes[0]
+    ax.fill_between(x_common, 0, dy, where=(dy >= 0),
+                    color='#4a8eff', alpha=0.4, label=f'{label_a} wider')
+    ax.fill_between(x_common, 0, dy, where=(dy < 0),
+                    color='#ff6b6b', alpha=0.4, label=f'{label_b} wider')
+    ax.plot(x_common, dy, 'k-', linewidth=0.8)
+    ax.axhline(0, color='k', linewidth=0.3)
+    ax.set_xlabel("x / r*")
+    ax.set_ylabel("\u0394y / r*")
+    ax.set_title("True Scale")
+    ax.set_aspect('equal')
+    ax.legend(fontsize=7)
+    ax.grid(True, alpha=0.2)
+
+    # Panel 2: exaggerated
+    ax = axes[1]
+    ax.fill_between(x_common, 0, dy, where=(dy >= 0),
+                    color='#4a8eff', alpha=0.4, label=f'{label_a} wider')
+    ax.fill_between(x_common, 0, dy, where=(dy < 0),
+                    color='#ff6b6b', alpha=0.4, label=f'{label_b} wider')
+    ax.plot(x_common, dy, 'k-', linewidth=0.8)
+    ax.axhline(0, color='k', linewidth=0.3)
+    ax.set_xlabel("x / r*")
+    ax.set_ylabel("\u0394y / r*")
+    ax.set_title("Exaggerated")
+    ax.legend(fontsize=7)
+    ax.grid(True, alpha=0.2)
+    # Auto-scale y to show detail
+    dy_max = max(abs(dy.max()), abs(dy.min()), 1e-6)
+    ax.set_ylim(-1.5 * dy_max, 1.5 * dy_max)
+
+    fig.suptitle(title, fontsize=11)
+    fig.tight_layout()
+    return fig, axes
