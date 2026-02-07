@@ -1360,7 +1360,7 @@ def sivells_perfc(axial_result, gamma=1.4, ie=0):
     # perfc.f lines 156-168 (ise=0, ip=0 path)
     em = eta_rad / (m - 1)
     # 1-indexed: a(:, 1..m)
-    MAXPTS = max(m, lq) + 5
+    MAXPTS = max(m, lq) + m + 5
     a = np.zeros((5, MAXPTS + 1))
     b = np.zeros((5, MAXPTS + 1))
 

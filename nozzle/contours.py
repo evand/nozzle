@@ -267,7 +267,9 @@ def truncated_ideal_contour(M_exit, truncation_fraction=0.8, n_chars=50,
     y_wall : ndarray
         Radial wall coordinates (normalized by throat radius).
     mesh : CharMesh
-        Full MLN characteristic mesh (for analysis of truncated exit).
+        Full MLN characteristic mesh. Note: moc_performance(mesh) evaluates
+        at the full MLN exit plane, not the truncated exit. TODO: add
+        cross-section evaluation at x_trunc for accurate TIC performance.
     """
     # Generate full MLN
     x_full, y_full, mesh = minimum_length_nozzle(M_exit, n_chars, gamma)
@@ -330,6 +332,83 @@ def minimum_length_nozzle(M_exit, n_chars=50, gamma=1.4):
     y_wall = y_wall[sort_idx]
 
     return x_wall, y_wall, mesh
+
+
+def sivells_nozzle(M_exit, gamma=1.4, rc=1.5, inflection_angle_deg=None,
+                   n_char=41, n_axis=21, nx=13, ix=0, ie=0):
+    """Generate an upstream nozzle contour using Sivells' CONTUR method.
+
+    Uses the Method of Characteristics with mass flow integration to compute
+    the wall contour from the throat to the inflection point. This is the
+    upstream portion only; the downstream contour is a separate computation.
+
+    Parameters
+    ----------
+    M_exit : float
+        Design exit Mach number.
+    gamma : float
+        Ratio of specific heats.
+    rc : float
+        Throat radius of curvature / throat radius (default 1.5).
+    inflection_angle_deg : float or None
+        Wall angle at inflection point in degrees. If None, auto-derived
+        as 30/M_exit (gives ~15° at M=2, ~7.5° at M=4).
+    n_char : int
+        Number of characteristic points (default 41).
+    n_axis : int
+        Number of axis points (default 21).
+    nx : int
+        Axis spacing exponent parameter (default 13, i.e. exponent = 1.3).
+    ix : int
+        Distribution type: 0 for 3rd-degree (default), nonzero for 4th-degree.
+    ie : int
+        0 for planar (default), 1 for axisymmetric.
+
+    Returns
+    -------
+    x : ndarray
+        Axial coordinates (throat at x=0), normalized by throat radius.
+    y : ndarray
+        Radial coordinates, normalized by throat radius (y=1 at throat).
+
+    Notes
+    -----
+    Only computes the **upstream** contour (throat to inflection point).
+    Port of Sivells' CONTUR program (AEDC-TR-78-63, 1978).
+    """
+    from nozzle.sivells import sivells_axial, sivells_perfc
+
+    if inflection_angle_deg is None:
+        inflection_angle_deg = 30.0 / M_exit
+
+    # bmach must be > 1 and < M_exit; use validated heuristic
+    bmach = min(max(1.5, 0.8 * M_exit), M_exit - 0.1)
+
+    axial = sivells_axial(
+        gamma=gamma,
+        eta_deg=inflection_angle_deg,
+        rc=rc,
+        bmach=bmach,
+        cmach=M_exit,
+        ie=ie,
+        n_char=n_char,
+        n_axis=n_axis,
+        ix=ix,
+        nx=nx,
+    )
+
+    perfc = sivells_perfc(axial, gamma=gamma, ie=ie)
+
+    # Convert CONTUR coordinates to r*-normalized (throat at x=0, y=1)
+    yo = axial['yo']   # throat half-height in CONTUR coords
+    xo = axial['xo']   # throat x-position in CONTUR coords
+    wax = perfc['wax']  # wall x in CONTUR coords
+    way = perfc['way']  # wall y in CONTUR coords
+
+    x = (wax - xo) / yo
+    y = way / yo
+
+    return x, y
 
 
 def load_contour_csv(path, r_throat=None, x_throat=None):

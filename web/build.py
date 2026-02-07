@@ -16,7 +16,7 @@ WEB_DIR = PROJECT_ROOT / 'web'
 SRC_DIR = PROJECT_ROOT / 'nozzle'
 DEST_DIR = WEB_DIR / 'nozzle'
 
-MODULES = ['__init__', 'gas', 'kernel', 'moc', 'contours', 'analysis']
+MODULES = ['__init__', 'gas', 'kernel', 'moc', 'contours', 'analysis', 'sivells']
 
 
 def main():

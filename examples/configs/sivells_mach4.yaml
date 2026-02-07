@@ -1,0 +1,33 @@
+# Sivells CONTUR upstream contour vs Rao parabolic at Mach 4
+# nozzle run examples/configs/sivells_mach4.yaml
+#
+# The Sivells contour uses Method of Characteristics with mass flow
+# integration (AEDC-TR-78-63). Only the upstream portion (throat to
+# inflection point) is computed; the downstream contour is a separate TODO.
+
+configs:
+  sivells_m4:
+    type: sivells
+    M_exit: 4.0
+    gamma: 1.4
+    rc: 6.0
+    inflection_angle_deg: 8.67
+    n_char: 41
+    n_axis: 21
+    nx: 13
+
+  rao_80:
+    type: rao
+    gamma: 1.4
+    M_exit: 4.0
+    bell_fraction: 0.8
+
+  conical_15:
+    type: conical
+    gamma: 1.4
+    M_exit: 4.0
+    half_angle_deg: 15
+
+outputs:
+  - contour
+  - performance

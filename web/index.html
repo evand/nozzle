@@ -24,11 +24,14 @@
             margin: 0 auto;
             padding: 1.5rem 2rem;
         }
-        .controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+
+        /* Shared parameters */
+        .shared-controls {
+            display: flex;
             gap: 1rem;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            align-items: flex-end;
         }
         .control-group { display: flex; flex-direction: column; gap: 0.3rem; }
         .control-group label {
@@ -44,10 +47,83 @@
             padding: 0.5rem 0.75rem;
             border-radius: 4px;
             font-size: 0.95rem;
+            width: 110px;
         }
         .control-group input:focus, .control-group select:focus {
             outline: none;
             border-color: #4a8eff;
+        }
+
+        /* Nozzle type cards */
+        .type-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .type-card {
+            background: #1a1d27;
+            border: 1px solid #2a2d37;
+            border-radius: 6px;
+            padding: 0.6rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .type-card.disabled { opacity: 0.5; }
+        .type-card input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: var(--type-color);
+        }
+        .type-card .type-label {
+            font-weight: 600;
+            font-size: 0.95rem;
+            min-width: 80px;
+        }
+        .type-card .color-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            display: inline-block;
+        }
+        .type-card .type-params {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .type-card .type-params label {
+            font-size: 0.8rem;
+            color: #888;
+        }
+        .type-card .type-params input {
+            background: #0f1117;
+            border: 1px solid #2a2d37;
+            color: #e0e0e0;
+            padding: 0.3rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.85rem;
+            width: 70px;
+        }
+        .type-card .type-params input:focus {
+            outline: none;
+            border-color: #4a8eff;
+        }
+        .type-card .type-note {
+            font-size: 0.75rem;
+            color: #666;
+            font-style: italic;
+        }
+
+        /* Buttons */
+        .btn-row {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
         }
         button.run-btn {
             background: #4a8eff;
@@ -57,8 +133,6 @@
             border-radius: 4px;
             font-size: 1rem;
             cursor: pointer;
-            align-self: flex-end;
-            margin-top: 0.3rem;
         }
         button.run-btn:hover { background: #3a7ee8; }
         button.run-btn:disabled {
@@ -66,6 +140,22 @@
             color: #666;
             cursor: not-allowed;
         }
+        button.export-btn {
+            background: #2a2d37;
+            color: #ccc;
+            border: 1px solid #3a3d47;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        button.export-btn:hover { background: #3a3d47; }
+        button.export-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Output grid */
         .output-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -80,6 +170,8 @@
             border-radius: 6px;
             overflow: hidden;
         }
+        .panel.full-width { grid-column: 1 / -1; }
+        .panel.hidden { display: none; }
         .panel-header {
             padding: 0.6rem 1rem;
             background: #1e2130;
@@ -101,11 +193,29 @@
         }
         #results-table th { color: #888; font-weight: 500; }
         #results-table td { color: #e0e0e0; }
+
+        /* Export bar */
+        .export-bar {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .export-bar .export-label {
+            font-size: 0.8rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-right: 0.25rem;
+        }
+
         .status-bar {
             padding: 0.5rem 1rem;
             font-size: 0.85rem;
             color: #888;
             min-height: 2rem;
+            margin-bottom: 1rem;
         }
         .status-bar.loading { color: #4a8eff; }
         .status-bar.error { color: #ff5555; }
@@ -118,7 +228,10 @@
         <p>Method of Characteristics solver for axisymmetric supersonic nozzle design</p>
     </header>
     <div class="container">
-        <div class="controls">
+        <div id="status" class="status-bar loading">Loading Pyodide and dependencies...</div>
+
+        <!-- Shared parameters -->
+        <div class="shared-controls">
             <div class="control-group">
                 <label>Exit Mach Number</label>
                 <input type="number" id="m-exit" value="2.0" min="1.1" max="10" step="0.1">
@@ -127,23 +240,78 @@
                 <label>Gamma (&gamma;)</label>
                 <input type="number" id="gamma" value="1.4" min="1.1" max="1.7" step="0.01">
             </div>
-            <div class="control-group">
-                <label>Conical Half-Angle (deg)</label>
-                <input type="number" id="half-angle" value="15" min="5" max="45" step="1">
+        </div>
+
+        <!-- Nozzle type toggles -->
+        <div class="type-cards">
+            <div class="type-card" style="--type-color: #ff6b6b;">
+                <input type="checkbox" id="chk-conical" checked>
+                <span class="color-swatch" style="background: #ff6b6b;"></span>
+                <span class="type-label">Conical</span>
+                <div class="type-params" id="params-conical">
+                    <label>Half-angle:
+                        <input type="number" id="half-angle" value="15" min="5" max="45" step="1">
+                    </label>
+                    <span style="color:#888; font-size:0.85rem;">deg</span>
+                </div>
             </div>
-            <div class="control-group">
-                <label>Bell Fraction (%)</label>
-                <input type="number" id="bell-frac" value="80" min="60" max="100" step="5">
+            <div class="type-card" style="--type-color: #4ecdc4;">
+                <input type="checkbox" id="chk-rao" checked>
+                <span class="color-swatch" style="background: #4ecdc4;"></span>
+                <span class="type-label">Rao Bell</span>
+                <div class="type-params" id="params-rao">
+                    <label>Bell fraction:
+                        <input type="number" id="bell-frac" value="80" min="60" max="100" step="5">
+                    </label>
+                    <span style="color:#888; font-size:0.85rem;">%</span>
+                </div>
             </div>
-            <div class="control-group">
-                <label>MOC Characteristics</label>
-                <input type="number" id="n-chars" value="20" min="5" max="100" step="5">
+            <div class="type-card" style="--type-color: #ffd93d;">
+                <input type="checkbox" id="chk-mln" checked>
+                <span class="color-swatch" style="background: #ffd93d;"></span>
+                <span class="type-label">MLN</span>
+                <div class="type-params" id="params-mln">
+                    <label>Characteristics:
+                        <input type="number" id="n-chars-mln" value="20" min="5" max="100" step="5">
+                    </label>
+                </div>
             </div>
-            <div class="control-group">
-                <button class="run-btn" id="run-btn" disabled>Loading Pyodide...</button>
+            <div class="type-card disabled" style="--type-color: #bb86fc;">
+                <input type="checkbox" id="chk-tic">
+                <span class="color-swatch" style="background: #bb86fc;"></span>
+                <span class="type-label">TIC</span>
+                <div class="type-params" id="params-tic">
+                    <label>Characteristics:
+                        <input type="number" id="n-chars-tic" value="20" min="5" max="100" step="5">
+                    </label>
+                    <label>Truncation:
+                        <input type="number" id="trunc-frac" value="80" min="10" max="100" step="5">
+                    </label>
+                    <span style="color:#888; font-size:0.85rem;">%</span>
+                </div>
+            </div>
+            <div class="type-card disabled" style="--type-color: #ff9f43;">
+                <input type="checkbox" id="chk-sivells">
+                <span class="color-swatch" style="background: #ff9f43;"></span>
+                <span class="type-label">Sivells</span>
+                <div class="type-params" id="params-sivells">
+                    <label>rc:
+                        <input type="number" id="sivells-rc" value="1.5" min="0.5" max="5" step="0.1">
+                    </label>
+                    <label>&theta;<sub>infl</sub>:
+                        <input type="text" id="sivells-theta" value="auto" style="width:55px;">
+                    </label>
+                    <span class="type-note">upstream contour only (throat &rarr; inflection)</span>
+                </div>
             </div>
         </div>
-        <div id="status" class="status-bar loading">Loading Pyodide and dependencies...</div>
+
+        <!-- Action buttons -->
+        <div class="btn-row">
+            <button class="run-btn" id="run-btn" disabled>Loading Pyodide...</button>
+        </div>
+
+        <!-- Output panels -->
         <div class="output-grid">
             <div class="panel">
                 <div class="panel-header">Contour Comparison</div>
@@ -167,10 +335,17 @@
                     </table>
                 </div>
             </div>
-            <div class="panel" style="grid-column: 1 / -1;">
-                <div class="panel-header">Exit Plane Mach Distribution (MLN)</div>
+            <div class="panel full-width hidden" id="exit-panel">
+                <div class="panel-header">Exit Plane Mach Distribution</div>
                 <div class="panel-body" id="exit-plot"></div>
             </div>
+        </div>
+
+        <!-- Export bar -->
+        <div class="export-bar" id="export-bar" style="display:none;">
+            <span class="export-label">Export:</span>
+            <div id="csv-buttons"></div>
+            <button class="export-btn" id="btn-export-yaml" disabled>Export YAML Config</button>
         </div>
     </div>
 
@@ -179,10 +354,50 @@
     (async function() {
         const statusEl = document.getElementById('status');
         const runBtn = document.getElementById('run-btn');
+        const exitPanel = document.getElementById('exit-panel');
+        const exportBar = document.getElementById('export-bar');
+
+        // Type colors (fixed per type)
+        const TYPE_COLORS = {
+            conical: '#ff6b6b',
+            rao: '#4ecdc4',
+            mln: '#ffd93d',
+            tic: '#bb86fc',
+            sivells: '#ff9f43',
+        };
+
+        // Checkbox toggle: enable/disable card styling
+        for (const type of ['conical', 'rao', 'mln', 'tic', 'sivells']) {
+            const chk = document.getElementById('chk-' + type);
+            const card = chk.closest('.type-card');
+            chk.addEventListener('change', () => {
+                card.classList.toggle('disabled', !chk.checked);
+            });
+        }
 
         function setStatus(msg, cls) {
             statusEl.textContent = msg;
             statusEl.className = 'status-bar ' + cls;
+        }
+
+        function getEnabledTypes() {
+            const types = [];
+            for (const t of ['conical', 'rao', 'mln', 'tic', 'sivells']) {
+                if (document.getElementById('chk-' + t).checked) types.push(t);
+            }
+            return types;
+        }
+
+        function triggerDownload(filename, content, mime) {
+            const blob = new Blob([content], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         // --- 1. Load Pyodide ---
@@ -202,9 +417,8 @@
         // --- 3. Fetch nozzle source files and write them into Pyodide FS ---
         setStatus('Loading nozzle source code...', 'loading');
 
-        const MODULES = ['__init__', 'gas', 'kernel', 'moc', 'contours', 'analysis'];
+        const MODULES = ['__init__', 'gas', 'kernel', 'moc', 'contours', 'analysis', 'sivells'];
 
-        // Create package directory in Pyodide filesystem
         pyodide.FS.mkdir('/nozzle');
 
         let fetchOK = 0;
@@ -227,17 +441,15 @@
                 'Run "python web/build.py" first, or serve via "nozzle web".',
                 'error'
             );
-            if (fetchOK < 4) return;   // Can't do anything useful
+            if (fetchOK < 4) return;
         }
 
-        // Add /nozzle to sys.path so "import nozzle.gas" works
         await pyodide.runPythonAsync(`
 import sys
 if '/' not in sys.path:
     sys.path.insert(0, '/')
 `);
 
-        // Quick sanity check
         try {
             await pyodide.runPythonAsync(`from nozzle.gas import pressure_ratio`);
         } catch(e) {
@@ -283,54 +495,185 @@ def styled_axes(fig, ax):
         runBtn.textContent = 'Run Design';
         runBtn.disabled = false;
 
+        // Store last computation results for exports
+        let lastResults = null;
+
         // --- 5. Run design on click ---
         runBtn.addEventListener('click', async () => {
+            const enabledTypes = getEnabledTypes();
+            if (enabledTypes.length === 0) {
+                setStatus('Enable at least one nozzle type.', 'error');
+                return;
+            }
+
             const mExit   = parseFloat(document.getElementById('m-exit').value);
             const gamma   = parseFloat(document.getElementById('gamma').value);
             const halfAng = parseFloat(document.getElementById('half-angle').value);
             const bellFr  = parseFloat(document.getElementById('bell-frac').value) / 100;
-            const nChars  = parseInt(document.getElementById('n-chars').value);
+            const nCharsMln = parseInt(document.getElementById('n-chars-mln').value);
+            const nCharsTic = parseInt(document.getElementById('n-chars-tic').value);
+            const truncFrac = parseFloat(document.getElementById('trunc-frac').value) / 100;
+            const sivellsRc = parseFloat(document.getElementById('sivells-rc').value);
+            const sivellsThetaRaw = document.getElementById('sivells-theta').value.trim();
+            const sivellsTheta = (sivellsThetaRaw === 'auto' || sivellsThetaRaw === '')
+                ? 'None' : parseFloat(sivellsThetaRaw);
 
             runBtn.disabled = true;
             runBtn.textContent = 'Computing...';
             setStatus('Running nozzle design...', 'loading');
 
-            try {
-                const result = await pyodide.runPythonAsync(`
+            // Build the Python code string dynamically based on enabled types
+            let pyCode = `
 import json
 from nozzle.gas import area_mach_ratio, thrust_coefficient_ideal
-from nozzle.contours import conical_nozzle, rao_parabolic_nozzle, minimum_length_nozzle
-from nozzle.analysis import conical_performance, rao_performance, moc_performance
+from nozzle.contours import conical_nozzle, rao_parabolic_nozzle, minimum_length_nozzle, truncated_ideal_contour, sivells_nozzle
+from nozzle.analysis import conical_performance, rao_performance, moc_performance, quasi_1d_performance
 
 M_exit   = ${mExit}
 gamma    = ${gamma}
-half_ang = ${halfAng}
-bell_fr  = ${bellFr}
-n_chars  = ${nChars}
 area_ratio = area_mach_ratio(M_exit, gamma)
-
-# --- compute ---
-x_con, y_con = conical_nozzle(half_ang, area_ratio)
-perf_con = conical_performance(half_ang, area_ratio, gamma)
-
-x_rao, y_rao, theta_n, theta_e = rao_parabolic_nozzle(area_ratio, bell_fr, gamma)
-perf_rao = rao_performance(area_ratio, bell_fr, gamma)
-
-x_mln, y_mln, mesh = minimum_length_nozzle(M_exit, n_chars, gamma)
-perf_mln = moc_performance(mesh, gamma)
-
 Cf_ideal = thrust_coefficient_ideal(M_exit, gamma)
 
-# --- contour plot ---
+nozzles = []  # list of dicts: {name, x, y, color, perf, csv, has_mesh, mesh}
+exit_data = None  # (y_exit, M_dist, theta_dist, name) for exit plane plot
+`;
+            if (enabledTypes.includes('conical')) {
+                pyCode += `
+# --- Conical ---
+half_ang = ${halfAng}
+x_con, y_con = conical_nozzle(half_ang, area_ratio)
+perf_con = conical_performance(half_ang, area_ratio, gamma)
+csv_con = "# conical nozzle contour\\n# x/r*,y/r*\\n"
+for xi, yi in zip(x_con, y_con):
+    csv_con += f"{xi:.8f},{yi:.8f}\\n"
+nozzles.append({
+    'name': f'Conical {half_ang}\\u00b0',
+    'x': x_con.tolist(), 'y': y_con.tolist(),
+    'color': '${TYPE_COLORS.conical}',
+    'perf': {'Cf': round(perf_con['Cf'], 4),
+             'pct': round(perf_con['Cf']/Cf_ideal*100, 1),
+             'note': f"\\u03bb={perf_con['lambda']:.4f}"},
+    'csv': csv_con,
+    'csv_name': 'conical',
+})
+`;
+            }
+            if (enabledTypes.includes('rao')) {
+                pyCode += `
+# --- Rao Bell ---
+bell_fr = ${bellFr}
+x_rao, y_rao, theta_n, theta_e = rao_parabolic_nozzle(area_ratio, bell_fr, gamma)
+perf_rao = rao_performance(area_ratio, bell_fr, gamma)
+csv_rao = "# rao bell nozzle contour\\n# x/r*,y/r*\\n"
+for xi, yi in zip(x_rao, y_rao):
+    csv_rao += f"{xi:.8f},{yi:.8f}\\n"
+nozzles.append({
+    'name': f'Rao {int(bell_fr*100)}% bell',
+    'x': x_rao.tolist(), 'y': y_rao.tolist(),
+    'color': '${TYPE_COLORS.rao}',
+    'perf': {'Cf': round(perf_rao['Cf'], 4),
+             'pct': round(perf_rao['Cf']/Cf_ideal*100, 1),
+             'note': f"\\u03b8n={perf_rao['theta_n_deg']:.1f}\\u00b0  \\u03b8e={perf_rao['theta_e_deg']:.1f}\\u00b0"},
+    'csv': csv_rao,
+    'csv_name': 'rao',
+})
+`;
+            }
+            if (enabledTypes.includes('mln')) {
+                pyCode += `
+# --- MLN ---
+n_chars_mln = ${nCharsMln}
+x_mln, y_mln, mesh_mln = minimum_length_nozzle(M_exit, n_chars_mln, gamma)
+perf_mln = moc_performance(mesh_mln, gamma)
+csv_mln = "# MLN nozzle contour\\n# x/r*,y/r*\\n"
+for xi, yi in zip(x_mln, y_mln):
+    csv_mln += f"{xi:.8f},{yi:.8f}\\n"
+nozzles.append({
+    'name': 'MLN',
+    'x': x_mln.tolist(), 'y': y_mln.tolist(),
+    'color': '${TYPE_COLORS.mln}',
+    'perf': {'Cf': round(perf_mln['Cf'], 4),
+             'pct': round(perf_mln['Cf']/Cf_ideal*100, 1),
+             'note': f"M_mean={perf_mln['M_mean']:.3f}"},
+    'csv': csv_mln,
+    'csv_name': 'mln',
+})
+y_exit_mln, M_dist_mln, theta_dist_mln = mesh_mln.get_exit_plane()
+if len(y_exit_mln) > 1:
+    exit_data = (y_exit_mln.tolist(), M_dist_mln.tolist(),
+                 np.degrees(theta_dist_mln).tolist(), 'MLN')
+`;
+            }
+            if (enabledTypes.includes('tic')) {
+                pyCode += `
+# --- TIC ---
+n_chars_tic = ${nCharsTic}
+trunc_frac = ${truncFrac}
+x_tic, y_tic, mesh_tic = truncated_ideal_contour(M_exit, trunc_frac, n_chars_tic, gamma)
+perf_tic = moc_performance(mesh_tic, gamma)
+csv_tic = "# TIC nozzle contour\\n# x/r*,y/r*\\n"
+for xi, yi in zip(x_tic, y_tic):
+    csv_tic += f"{xi:.8f},{yi:.8f}\\n"
+nozzles.append({
+    'name': f'TIC {int(trunc_frac*100)}%',
+    'x': x_tic.tolist(), 'y': y_tic.tolist(),
+    'color': '${TYPE_COLORS.tic}',
+    'perf': {'Cf': round(perf_tic['Cf'], 4),
+             'pct': round(perf_tic['Cf']/Cf_ideal*100, 1),
+             'note': f"M_mean={perf_tic['M_mean']:.3f} (Cf from full MLN mesh)"},
+    'csv': csv_tic,
+    'csv_name': 'tic',
+})
+if exit_data is None:
+    y_exit_tic, M_dist_tic, theta_dist_tic = mesh_tic.get_exit_plane()
+    if len(y_exit_tic) > 1:
+        exit_data = (y_exit_tic.tolist(), M_dist_tic.tolist(),
+                     np.degrees(theta_dist_tic).tolist(), f'TIC {int(trunc_frac*100)}%')
+`;
+            }
+            if (enabledTypes.includes('sivells')) {
+                pyCode += `
+# --- Sivells ---
+sivells_rc = ${sivellsRc}
+sivells_theta = ${sivellsTheta}
+try:
+    x_siv, y_siv = sivells_nozzle(M_exit, gamma=gamma, rc=sivells_rc,
+                                   inflection_angle_deg=sivells_theta)
+    perf_siv = quasi_1d_performance(x_siv, y_siv, gamma)
+    csv_siv = "# sivells nozzle contour (upstream only)\\n# x/r*,y/r*\\n"
+    for xi, yi in zip(x_siv, y_siv):
+        csv_siv += f"{xi:.8f},{yi:.8f}\\n"
+    nozzles.append({
+        'name': 'Sivells',
+        'x': x_siv.tolist(), 'y': y_siv.tolist(),
+        'color': '${TYPE_COLORS.sivells}',
+        'perf': {'Cf': round(perf_siv['Cf'], 4),
+                 'pct': round(perf_siv['Cf']/Cf_ideal*100, 1),
+                 'note': f"\\u03bb={perf_siv['lambda']:.4f} (upstream)"},
+        'csv': csv_siv,
+        'csv_name': 'sivells',
+    })
+except Exception as e:
+    nozzles.append({
+        'name': 'Sivells',
+        'x': [], 'y': [],
+        'color': '${TYPE_COLORS.sivells}',
+        'perf': {'Cf': 0, 'pct': 0, 'note': f"Error: {e}"},
+        'csv': '',
+        'csv_name': 'sivells',
+    })
+`;
+            }
+
+            // Plotting code
+            pyCode += `
+# --- Contour plot ---
 fig1, ax1 = plt.subplots(figsize=(7, 3.5))
 styled_axes(fig1, ax1)
-for (x, y, label, c) in [
-    (x_con, y_con, f'Conical {half_ang}\\u00b0',  '#ff6b6b'),
-    (x_rao, y_rao, f'Rao {int(bell_fr*100)}% bell', '#4ecdc4'),
-    (x_mln, y_mln, 'MLN',                           '#ffd93d'),
-]:
-    ax1.plot(x, y, '-', color=c, lw=1.8, label=label)
-    ax1.plot(x, -y, '-', color=c, lw=1.8)
+for nz in nozzles:
+    if len(nz['x']) > 0:
+        ax1.plot(nz['x'], nz['y'], '-', color=nz['color'], lw=1.8, label=nz['name'])
+        ax1.plot(nz['x'], [-v for v in nz['y']], '-', color=nz['color'], lw=1.8)
 ax1.axhline(0, color='#555', lw=0.5, ls='--')
 ax1.set_xlabel('x / r*')
 ax1.set_ylabel('y / r*')
@@ -341,57 +684,85 @@ fig1.tight_layout()
 contour_img = fig_to_base64(fig1)
 plt.close(fig1)
 
-# --- exit distribution plot ---
-y_exit, M_exit_dist, theta_exit = mesh.get_exit_plane()
-fig2, axes2 = plt.subplots(1, 2, figsize=(7, 3))
-for a in axes2: styled_axes(fig2, a)
-if len(y_exit) > 1:
-    axes2[0].plot(y_exit, M_exit_dist, '-o', color='#4ecdc4', ms=2)
-    axes2[0].set_xlabel('y / r*'); axes2[0].set_ylabel('Mach')
-    axes2[0].set_title('Exit Mach'); axes2[0].grid(True, alpha=0.15, color='#555')
-    axes2[1].plot(y_exit, np.degrees(theta_exit), '-o', color='#ff6b6b', ms=2)
-    axes2[1].set_xlabel('y / r*'); axes2[1].set_ylabel('\\u03b8 [deg]')
-    axes2[1].set_title('Exit Flow Angle'); axes2[1].grid(True, alpha=0.15, color='#555')
-else:
-    for a in axes2:
-        a.text(0.5, 0.5, 'Insufficient exit data',
-               ha='center', va='center', transform=a.transAxes, color='#888')
-fig2.tight_layout()
-exit_img = fig_to_base64(fig2)
-plt.close(fig2)
+# --- Exit plane plot ---
+exit_img = None
+if exit_data is not None:
+    y_ep, M_ep, theta_ep, ep_name = exit_data
+    fig2, axes2 = plt.subplots(1, 2, figsize=(7, 3))
+    for a in axes2: styled_axes(fig2, a)
+    if len(y_ep) > 1:
+        axes2[0].plot(y_ep, M_ep, '-o', color='#4ecdc4', ms=2)
+        axes2[0].set_xlabel('y / r*'); axes2[0].set_ylabel('Mach')
+        axes2[0].set_title(f'Exit Mach ({ep_name})'); axes2[0].grid(True, alpha=0.15, color='#555')
+        axes2[1].plot(y_ep, theta_ep, '-o', color='#ff6b6b', ms=2)
+        axes2[1].set_xlabel('y / r*'); axes2[1].set_ylabel('\\u03b8 [deg]')
+        axes2[1].set_title(f'Exit Flow Angle ({ep_name})'); axes2[1].grid(True, alpha=0.15, color='#555')
+    fig2.tight_layout()
+    exit_img = fig_to_base64(fig2)
+    plt.close(fig2)
 
-json.dumps({
+# --- Build result ---
+result = {
     'contour_img': contour_img,
-    'exit_img':    exit_img,
-    'Cf_ideal':    round(Cf_ideal, 4),
-    'area_ratio':  round(area_ratio, 4),
-    'conical': {'Cf': round(perf_con['Cf'], 4),
-                'pct': round(perf_con['Cf']/Cf_ideal*100, 1),
-                'note': f"\\u03bb={perf_con['lambda']:.4f}"},
-    'rao':     {'Cf': round(perf_rao['Cf'], 4),
-                'pct': round(perf_rao['Cf']/Cf_ideal*100, 1),
-                'note': f"\\u03b8n={perf_rao['theta_n_deg']:.1f}\\u00b0  \\u03b8e={perf_rao['theta_e_deg']:.1f}\\u00b0"},
-    'mln':     {'Cf': round(perf_mln['Cf'], 4),
-                'pct': round(perf_mln['Cf']/Cf_ideal*100, 1),
-                'note': f"M_mean={perf_mln['M_mean']:.3f}"},
-})
-`);
-                const data = JSON.parse(result);
+    'exit_img': exit_img,
+    'Cf_ideal': round(Cf_ideal, 4),
+    'area_ratio': round(area_ratio, 4),
+    'nozzles': [{
+        'name': nz['name'],
+        'Cf': nz['perf']['Cf'],
+        'pct': nz['perf']['pct'],
+        'note': nz['perf']['note'],
+        'csv': nz['csv'],
+        'csv_name': nz['csv_name'],
+    } for nz in nozzles],
+}
+json.dumps(result)
+`;
 
+            try {
+                const resultStr = await pyodide.runPythonAsync(pyCode);
+                const data = JSON.parse(resultStr);
+                lastResults = data;
+
+                // Update contour plot
                 document.getElementById('contour-plot').innerHTML =
                     `<img src="data:image/png;base64,${data.contour_img}">`;
-                document.getElementById('exit-plot').innerHTML =
-                    `<img src="data:image/png;base64,${data.exit_img}">`;
 
-                document.getElementById('results-body').innerHTML = `
-                    <tr><td>1D Ideal</td><td>${data.Cf_ideal}</td><td>100.0%</td>
-                        <td>A/A* = ${data.area_ratio}</td></tr>
-                    <tr><td>Conical</td><td>${data.conical.Cf}</td><td>${data.conical.pct}%</td>
-                        <td>${data.conical.note}</td></tr>
-                    <tr><td>Rao Bell</td><td>${data.rao.Cf}</td><td>${data.rao.pct}%</td>
-                        <td>${data.rao.note}</td></tr>
-                    <tr><td>MLN</td><td>${data.mln.Cf}</td><td>${data.mln.pct}%</td>
-                        <td>${data.mln.note}</td></tr>`;
+                // Update exit plane
+                if (data.exit_img) {
+                    exitPanel.classList.remove('hidden');
+                    document.getElementById('exit-plot').innerHTML =
+                        `<img src="data:image/png;base64,${data.exit_img}">`;
+                } else {
+                    exitPanel.classList.add('hidden');
+                }
+
+                // Update performance table
+                let tableHTML = `<tr><td>1D Ideal</td><td>${data.Cf_ideal}</td>
+                    <td>100.0%</td><td>A/A* = ${data.area_ratio}</td></tr>`;
+                for (const nz of data.nozzles) {
+                    tableHTML += `<tr><td>${nz.name}</td><td>${nz.Cf}</td>
+                        <td>${nz.pct}%</td><td>${nz.note}</td></tr>`;
+                }
+                document.getElementById('results-body').innerHTML = tableHTML;
+
+                // Update export buttons
+                exportBar.style.display = 'flex';
+                const csvContainer = document.getElementById('csv-buttons');
+                csvContainer.innerHTML = '';
+                for (const nz of data.nozzles) {
+                    if (nz.csv) {
+                        const btn = document.createElement('button');
+                        btn.className = 'export-btn';
+                        btn.textContent = `CSV: ${nz.csv_name}`;
+                        btn.addEventListener('click', () => {
+                            triggerDownload(`${nz.csv_name}_contour.csv`, nz.csv,
+                                           'text/csv');
+                        });
+                        csvContainer.appendChild(btn);
+                    }
+                }
+                document.getElementById('btn-export-yaml').disabled = false;
 
                 setStatus(
                     `Done.  A/A* = ${data.area_ratio}   Cf_ideal = ${data.Cf_ideal}`,
@@ -406,6 +777,75 @@ json.dumps({
             runBtn.disabled = false;
             runBtn.textContent = 'Run Design';
         });
+
+        // --- YAML export ---
+        document.getElementById('btn-export-yaml').addEventListener('click', () => {
+            if (!lastResults) return;
+
+            const mExit   = document.getElementById('m-exit').value;
+            const gamma   = document.getElementById('gamma').value;
+            const halfAng = document.getElementById('half-angle').value;
+            const bellFr  = (parseFloat(document.getElementById('bell-frac').value) / 100).toFixed(2);
+            const nCharsMln = document.getElementById('n-chars-mln').value;
+            const nCharsTic = document.getElementById('n-chars-tic').value;
+            const truncFrac = (parseFloat(document.getElementById('trunc-frac').value) / 100).toFixed(2);
+            const sivellsRc = document.getElementById('sivells-rc').value;
+            const sivellsTheta = document.getElementById('sivells-theta').value.trim();
+
+            let yaml = `# Generated by Nozzle web viewer\n`;
+            yaml += `# To run: pip install -e . && nozzle run this_file.yaml\n\n`;
+            yaml += `configs:\n`;
+
+            const enabledTypes = getEnabledTypes();
+
+            if (enabledTypes.includes('conical')) {
+                yaml += `  conical_${halfAng}:\n`;
+                yaml += `    type: conical\n`;
+                yaml += `    gamma: ${gamma}\n`;
+                yaml += `    M_exit: ${mExit}\n`;
+                yaml += `    half_angle_deg: ${halfAng}\n\n`;
+            }
+            if (enabledTypes.includes('rao')) {
+                yaml += `  rao_${Math.round(parseFloat(bellFr)*100)}:\n`;
+                yaml += `    type: rao\n`;
+                yaml += `    gamma: ${gamma}\n`;
+                yaml += `    M_exit: ${mExit}\n`;
+                yaml += `    bell_fraction: ${bellFr}\n\n`;
+            }
+            if (enabledTypes.includes('mln')) {
+                yaml += `  mln:\n`;
+                yaml += `    type: mln\n`;
+                yaml += `    gamma: ${gamma}\n`;
+                yaml += `    M_exit: ${mExit}\n`;
+                yaml += `    n_chars: ${nCharsMln}\n\n`;
+            }
+            if (enabledTypes.includes('tic')) {
+                yaml += `  tic_${Math.round(parseFloat(truncFrac)*100)}:\n`;
+                yaml += `    type: tic\n`;
+                yaml += `    gamma: ${gamma}\n`;
+                yaml += `    M_exit: ${mExit}\n`;
+                yaml += `    n_chars: ${nCharsTic}\n`;
+                yaml += `    truncation_fraction: ${truncFrac}\n\n`;
+            }
+            if (enabledTypes.includes('sivells')) {
+                yaml += `  sivells:\n`;
+                yaml += `    type: sivells\n`;
+                yaml += `    gamma: ${gamma}\n`;
+                yaml += `    M_exit: ${mExit}\n`;
+                yaml += `    rc: ${sivellsRc}\n`;
+                if (sivellsTheta !== 'auto' && sivellsTheta !== '') {
+                    yaml += `    inflection_angle_deg: ${sivellsTheta}\n`;
+                }
+                yaml += `\n`;
+            }
+
+            yaml += `outputs:\n`;
+            yaml += `  - contour\n`;
+            yaml += `  - performance\n`;
+
+            triggerDownload('nozzle_config.yaml', yaml, 'text/yaml');
+        });
+
     })();
     </script>
 </body>

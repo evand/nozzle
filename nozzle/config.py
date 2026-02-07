@@ -152,7 +152,7 @@ def build_nozzle_spec(cfg):
     Returns
     -------
     dict with standardized keys:
-        type : str — 'conical', 'rao', 'mln', 'tic', 'custom'
+        type : str — 'conical', 'rao', 'mln', 'tic', 'sivells', 'custom'
         gamma : float
         area_ratio : float
         throat_radius_m : float or None — physical throat radius in meters
@@ -212,6 +212,18 @@ def build_nozzle_spec(cfg):
         if ntype == 'tic':
             spec['truncation_fraction'] = float(
                 cfg.get('truncation_fraction', 0.8))
+
+    elif ntype == 'sivells':
+        spec['rc'] = float(cfg.get('rc', 1.5))
+        spec['inflection_angle_deg'] = (
+            float(cfg['inflection_angle_deg'])
+            if 'inflection_angle_deg' in cfg else None
+        )
+        spec['n_char'] = int(cfg.get('n_char', 41))
+        spec['n_axis'] = int(cfg.get('n_axis', 21))
+        spec['nx'] = int(cfg.get('nx', 13))
+        spec['ix'] = int(cfg.get('ix', 0))
+        spec['ie'] = int(cfg.get('ie', 0))
 
     elif ntype == 'custom':
         spec['contour_file'] = cfg.get('contour_file', '')

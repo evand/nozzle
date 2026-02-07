@@ -18,6 +18,7 @@ from nozzle.config import load_config, build_nozzle_spec
 from nozzle.contours import (
     conical_nozzle, rao_parabolic_nozzle, minimum_length_nozzle,
     truncated_ideal_contour, conical_divergence_loss, load_contour_csv,
+    sivells_nozzle,
 )
 from nozzle.analysis import (
     conical_performance, rao_performance, moc_performance,
@@ -171,6 +172,8 @@ def _print_summary_table(results):
                     f"theta_e={r.get('theta_e_deg', 0):.1f}")
         elif rtype in ('mln', 'tic'):
             note = f"M_mean={r.get('M_mean', 0):.3f}"
+        elif rtype == 'sivells':
+            note = f"lambda={r.get('lambda', 0):.4f} (upstream only)"
         elif rtype == 'custom':
             note = f"lambda={r.get('lambda', 0):.4f} (quasi-1D)"
         rows.append((name, cf, pct, note))
@@ -274,8 +277,32 @@ def _run_single(spec, name, output_dir, outputs):
         result['x_wall'] = x_wall
         result['y_wall'] = y_wall
         result['mesh'] = mesh
+        # TODO: Cf is evaluated at full MLN exit plane, not the truncated exit.
+        # Fix as part of comparisons task (evaluate at x_trunc cross-section).
         print(f"  TIC {trunc_frac*100:.0f}% M={M_exit:.1f}: Cf={perf['Cf']:.4f}, "
-              f"M_mean={perf['M_mean']:.3f}")
+              f"M_mean={perf['M_mean']:.3f} (Cf from full MLN mesh)")
+
+    elif ntype == 'sivells':
+        M_exit = spec['M_exit']
+        x_wall, y_wall = sivells_nozzle(
+            M_exit, gamma=gamma,
+            rc=spec.get('rc', 1.5),
+            inflection_angle_deg=spec.get('inflection_angle_deg'),
+            n_char=spec.get('n_char', 41),
+            n_axis=spec.get('n_axis', 21),
+            nx=spec.get('nx', 13),
+            ix=spec.get('ix', 0),
+            ie=spec.get('ie', 0),
+        )
+        perf = quasi_1d_performance(x_wall, y_wall, gamma)
+        result.update(perf)
+        result['x_wall'] = x_wall
+        result['y_wall'] = y_wall
+        eta = spec.get('inflection_angle_deg')
+        eta_str = f"{eta:.1f}" if eta is not None else "auto"
+        print(f"  Sivells M={M_exit:.1f}: {len(x_wall)} pts, "
+              f"θ_infl={eta_str}°, "
+              f"Cf={perf['Cf']:.4f} (quasi-1D, λ={perf['lambda']:.4f})")
 
     elif ntype == 'custom':
         contour_file = spec.get('contour_file', '')
