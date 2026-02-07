@@ -4,6 +4,39 @@ Move items here from TODO.md when done. Most recent at top.
 
 ---
 
+## Structured console output
+Aligned summary table with Cf, % Ideal, and type-specific notes printed after
+all configs run. Replaces ad-hoc per-config print statements.
+*Completed 2026-02-07*
+
+## Custom contour quasi-1D performance
+`quasi_1d_performance()` in analysis.py estimates Cf for CSV contours using
+area-Mach relation and exit divergence angle (lambda). Custom contours now
+participate in performance comparisons.
+*Completed 2026-02-07*
+
+## Input flexibility: M_exit / exit_radius / area_ratio
+Config now accepts any one of M_exit, exit_radius, or area_ratio. The others
+are computed via isentropic relations. Priority: exit_radius > M_exit > area_ratio.
+*Completed 2026-02-07*
+
+## Dimensional I/O
+Config accepts `throat_radius` with units (mm/cm/m/in/ft). CSV exports include
+dimensional columns (x_mm, y_mm) alongside normalized. Solver internals unchanged.
+*Completed 2026-02-07*
+
+## Shape delta plot
+`plot_contour_delta()` in plots.py shows dy(x) between two contours in two
+panels: true-scale (aspect='equal') and exaggerated (auto-scaled y). CLI
+generates delta plots for every pair in comparison configs.
+*Completed 2026-02-07*
+
+## Data exports (CSV, JSON, exit plane)
+CLI writes `{name}_contour.csv`, `{name}_exit_plane.csv` (for MLN/TIC), and
+`summary.json` with all performance metrics. Dimensional columns included when
+throat_radius is set.
+*Completed 2026-02-07*
+
 ## Exit plane plot deduplication
 Fixed `get_exit_plane` to deduplicate points at similar y-positions, and moved
 interior mesh points from 0.97 to 0.80 of exit to avoid tolerance overlap.
