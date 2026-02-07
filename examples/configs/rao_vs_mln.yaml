@@ -1,0 +1,30 @@
+# Compare Rao parabolic approximation with Minimum Length Nozzle
+# nozzle run examples/configs/rao_vs_mln.yaml
+
+configs:
+  conical_15:
+    type: conical
+    gamma: 1.4
+    area_ratio: 10
+    half_angle_deg: 15
+
+  rao_80:
+    type: rao
+    gamma: 1.4
+    area_ratio: 10
+    bell_fraction: 0.8
+
+  mln:
+    type: mln
+    gamma: 1.4
+    area_ratio: 10
+    M_exit: 2.0
+    n_chars: 30
+
+comparisons:
+  - name: rao_vs_mln
+    configs: [rao_80, mln]
+
+outputs:
+  - contour
+  - performance

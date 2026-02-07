@@ -1,0 +1,14 @@
+# Anderson MCF Example 11.2: MLN design for M=2.4
+# nozzle run examples/configs/anderson_example.yaml
+
+configs:
+  anderson_mln:
+    type: mln
+    gamma: 1.4
+    area_ratio: 2.4025  # A/A* for M=2.4
+    M_exit: 2.4
+    n_chars: 30
+
+outputs:
+  - contour
+  - performance

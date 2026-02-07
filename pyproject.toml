@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nozzle"
+version = "0.1.0"
+description = "Method of Characteristics rocket nozzle design tool"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "unyt",
+    "pyyaml",
+]
+
+[project.scripts]
+nozzle = "nozzle.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,45 @@
+"""Tests for truncated ideal contour (TIC) nozzle."""
+
+import numpy as np
+import pytest
+from nozzle.contours import truncated_ideal_contour, minimum_length_nozzle
+
+
+class TestTIC:
+
+    def test_tic_runs(self):
+        """TIC should generate without error."""
+        x, y, mesh = truncated_ideal_contour(2.0, 0.8, n_chars=15)
+        assert len(x) > 2
+        assert len(y) > 2
+
+    def test_tic_shorter_than_mln(self):
+        """TIC should be shorter than full MLN."""
+        x_mln, _, _ = minimum_length_nozzle(2.0, n_chars=15)
+        x_tic, _, _ = truncated_ideal_contour(2.0, 0.8, n_chars=15)
+        assert x_tic[-1] < x_mln[-1]
+
+    def test_tic_fraction_1_equals_mln(self):
+        """TIC at 100% should equal full MLN."""
+        x_mln, y_mln, _ = minimum_length_nozzle(2.0, n_chars=15)
+        x_tic, y_tic, _ = truncated_ideal_contour(2.0, 1.0, n_chars=15)
+        np.testing.assert_array_almost_equal(x_tic, x_mln)
+        np.testing.assert_array_almost_equal(y_tic, y_mln)
+
+    def test_tic_exit_radius_less_than_mln(self):
+        """TIC exit radius should be less than full MLN exit radius."""
+        _, y_mln, _ = minimum_length_nozzle(2.0, n_chars=15)
+        _, y_tic, _ = truncated_ideal_contour(2.0, 0.6, n_chars=15)
+        assert y_tic[-1] < y_mln[-1]
+
+    def test_tic_starts_at_throat(self):
+        """TIC wall should start near x=0, y=1."""
+        x, y, _ = truncated_ideal_contour(2.0, 0.8, n_chars=15)
+        assert x[0] == pytest.approx(0.0, abs=0.1)
+        assert y[0] == pytest.approx(1.0, abs=0.2)
+
+    def test_tic_monotonic_fractions(self):
+        """Longer TIC should have more length."""
+        x60, _, _ = truncated_ideal_contour(2.0, 0.6, n_chars=15)
+        x80, _, _ = truncated_ideal_contour(2.0, 0.8, n_chars=15)
+        assert x60[-1] < x80[-1]

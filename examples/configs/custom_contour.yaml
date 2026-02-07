@@ -1,0 +1,25 @@
+# Compare different bell fractions for a Rao nozzle
+# nozzle run examples/configs/custom_contour.yaml
+
+configs:
+  rao_60:
+    type: rao
+    gamma: 1.4
+    area_ratio: 10
+    bell_fraction: 0.6
+
+  rao_80:
+    base: rao_60
+    bell_fraction: 0.8
+
+  rao_100:
+    base: rao_60
+    bell_fraction: 1.0
+
+comparisons:
+  - name: bell_fractions
+    configs: [rao_60, rao_80, rao_100]
+
+outputs:
+  - contour
+  - performance

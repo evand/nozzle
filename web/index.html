@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nozzle — MOC Rocket Nozzle Design Tool</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f1117;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        header {
+            background: #1a1d27;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #2a2d37;
+        }
+        header h1 { font-size: 1.4rem; color: #fff; }
+        header p { font-size: 0.85rem; color: #888; margin-top: 0.2rem; }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1.5rem 2rem;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .control-group { display: flex; flex-direction: column; gap: 0.3rem; }
+        .control-group label {
+            font-size: 0.8rem;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .control-group input, .control-group select {
+            background: #1a1d27;
+            border: 1px solid #2a2d37;
+            color: #e0e0e0;
+            padding: 0.5rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.95rem;
+        }
+        .control-group input:focus, .control-group select:focus {
+            outline: none;
+            border-color: #4a8eff;
+        }
+        button.run-btn {
+            background: #4a8eff;
+            color: #fff;
+            border: none;
+            padding: 0.6rem 1.5rem;
+            border-radius: 4px;
+            font-size: 1rem;
+            cursor: pointer;
+            align-self: flex-end;
+            margin-top: 0.3rem;
+        }
+        button.run-btn:hover { background: #3a7ee8; }
+        button.run-btn:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .output-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        @media (max-width: 800px) {
+            .output-grid { grid-template-columns: 1fr; }
+        }
+        .panel {
+            background: #1a1d27;
+            border: 1px solid #2a2d37;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .panel-header {
+            padding: 0.6rem 1rem;
+            background: #1e2130;
+            font-size: 0.85rem;
+            color: #aaa;
+            border-bottom: 1px solid #2a2d37;
+        }
+        .panel-body { padding: 1rem; }
+        .panel-body img { width: 100%; height: auto; display: block; }
+        #results-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        #results-table th, #results-table td {
+            padding: 0.4rem 0.8rem;
+            text-align: left;
+            border-bottom: 1px solid #2a2d37;
+        }
+        #results-table th { color: #888; font-weight: 500; }
+        #results-table td { color: #e0e0e0; }
+        .status-bar {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+            color: #888;
+            min-height: 2rem;
+        }
+        .status-bar.loading { color: #4a8eff; }
+        .status-bar.error { color: #ff5555; }
+        .status-bar.ready { color: #55ff55; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Nozzle &mdash; MOC Rocket Nozzle Design Tool</h1>
+        <p>Method of Characteristics solver for axisymmetric supersonic nozzle design</p>
+    </header>
+    <div class="container">
+        <div class="controls">
+            <div class="control-group">
+                <label>Exit Mach Number</label>
+                <input type="number" id="m-exit" value="2.0" min="1.1" max="10" step="0.1">
+            </div>
+            <div class="control-group">
+                <label>Gamma (&gamma;)</label>
+                <input type="number" id="gamma" value="1.4" min="1.1" max="1.7" step="0.01">
+            </div>
+            <div class="control-group">
+                <label>Conical Half-Angle (deg)</label>
+                <input type="number" id="half-angle" value="15" min="5" max="45" step="1">
+            </div>
+            <div class="control-group">
+                <label>Bell Fraction (%)</label>
+                <input type="number" id="bell-frac" value="80" min="60" max="100" step="5">
+            </div>
+            <div class="control-group">
+                <label>MOC Characteristics</label>
+                <input type="number" id="n-chars" value="20" min="5" max="100" step="5">
+            </div>
+            <div class="control-group">
+                <button class="run-btn" id="run-btn" disabled>Loading Pyodide...</button>
+            </div>
+        </div>
+        <div id="status" class="status-bar loading">Loading Pyodide and dependencies...</div>
+        <div class="output-grid">
+            <div class="panel">
+                <div class="panel-header">Contour Comparison</div>
+                <div class="panel-body" id="contour-plot"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-header">Performance</div>
+                <div class="panel-body">
+                    <table id="results-table">
+                        <thead>
+                            <tr>
+                                <th>Nozzle</th>
+                                <th>Cf</th>
+                                <th>% Ideal</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body">
+                            <tr><td colspan="4" style="color:#666">Run a design to see results</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="panel" style="grid-column: 1 / -1;">
+                <div class="panel-header">Exit Plane Mach Distribution (MLN)</div>
+                <div class="panel-body" id="exit-plot"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.27.5/full/pyodide.js"></script>
+    <script>
+    (async function() {
+        const statusEl = document.getElementById('status');
+        const runBtn = document.getElementById('run-btn');
+
+        function setStatus(msg, cls) {
+            statusEl.textContent = msg;
+            statusEl.className = 'status-bar ' + cls;
+        }
+
+        // --- 1. Load Pyodide ---
+        setStatus('Loading Pyodide runtime...', 'loading');
+        let pyodide;
+        try {
+            pyodide = await loadPyodide();
+        } catch(e) {
+            setStatus('Failed to load Pyodide: ' + e.message, 'error');
+            return;
+        }
+
+        // --- 2. Install numpy / scipy / matplotlib ---
+        setStatus('Installing packages (numpy, scipy, matplotlib)...', 'loading');
+        await pyodide.loadPackage(['numpy', 'scipy', 'matplotlib']);
+
+        // --- 3. Fetch nozzle source files and write them into Pyodide FS ---
+        setStatus('Loading nozzle source code...', 'loading');
+
+        const MODULES = ['__init__', 'gas', 'kernel', 'moc', 'contours', 'analysis'];
+
+        // Create package directory in Pyodide filesystem
+        pyodide.FS.mkdir('/nozzle');
+
+        let fetchOK = 0;
+        for (const mod of MODULES) {
+            const url = `./nozzle/${mod}.py`;
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const code = await resp.text();
+                pyodide.FS.writeFile(`/nozzle/${mod}.py`, code);
+                fetchOK++;
+            } catch(e) {
+                console.warn(`Could not fetch ${url}: ${e.message}`);
+            }
+        }
+
+        if (fetchOK < MODULES.length) {
+            setStatus(
+                `Warning: loaded ${fetchOK}/${MODULES.length} modules. ` +
+                'Run "python web/build.py" first, or serve via "nozzle web".',
+                'error'
+            );
+            if (fetchOK < 4) return;   // Can't do anything useful
+        }
+
+        // Add /nozzle to sys.path so "import nozzle.gas" works
+        await pyodide.runPythonAsync(`
+import sys
+if '/' not in sys.path:
+    sys.path.insert(0, '/')
+`);
+
+        // Quick sanity check
+        try {
+            await pyodide.runPythonAsync(`from nozzle.gas import pressure_ratio`);
+        } catch(e) {
+            setStatus('Failed to import nozzle package: ' + e.message, 'error');
+            return;
+        }
+
+        // --- 4. Load plotting helpers ---
+        await pyodide.runPythonAsync(`
+import matplotlib
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+import numpy as np
+from io import BytesIO
+import base64
+
+def fig_to_base64(fig, dpi=120):
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight',
+                facecolor='#1a1d27', edgecolor='none')
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode('utf-8')
+
+def styled_axes(fig, ax):
+    ax.set_facecolor('#1a1d27')
+    fig.patch.set_facecolor('#1a1d27')
+    for spine in ax.spines.values():
+        spine.set_color('#444')
+    ax.tick_params(colors='#aaa')
+    ax.xaxis.label.set_color('#aaa')
+    ax.yaxis.label.set_color('#aaa')
+    ax.title.set_color('#ddd')
+    if ax.get_legend():
+        leg = ax.get_legend()
+        leg.get_frame().set_facecolor('#1e2130')
+        leg.get_frame().set_edgecolor('#2a2d37')
+        for text in leg.get_texts():
+            text.set_color('#ddd')
+`);
+
+        // --- Ready ---
+        setStatus('Ready', 'ready');
+        runBtn.textContent = 'Run Design';
+        runBtn.disabled = false;
+
+        // --- 5. Run design on click ---
+        runBtn.addEventListener('click', async () => {
+            const mExit   = parseFloat(document.getElementById('m-exit').value);
+            const gamma   = parseFloat(document.getElementById('gamma').value);
+            const halfAng = parseFloat(document.getElementById('half-angle').value);
+            const bellFr  = parseFloat(document.getElementById('bell-frac').value) / 100;
+            const nChars  = parseInt(document.getElementById('n-chars').value);
+
+            runBtn.disabled = true;
+            runBtn.textContent = 'Computing...';
+            setStatus('Running nozzle design...', 'loading');
+
+            try {
+                const result = await pyodide.runPythonAsync(`
+import json
+from nozzle.gas import area_mach_ratio, thrust_coefficient_ideal
+from nozzle.contours import conical_nozzle, rao_parabolic_nozzle, minimum_length_nozzle
+from nozzle.analysis import conical_performance, rao_performance, moc_performance
+
+M_exit   = ${mExit}
+gamma    = ${gamma}
+half_ang = ${halfAng}
+bell_fr  = ${bellFr}
+n_chars  = ${nChars}
+area_ratio = area_mach_ratio(M_exit, gamma)
+
+# --- compute ---
+x_con, y_con = conical_nozzle(half_ang, area_ratio)
+perf_con = conical_performance(half_ang, area_ratio, gamma)
+
+x_rao, y_rao, theta_n, theta_e = rao_parabolic_nozzle(area_ratio, bell_fr, gamma)
+perf_rao = rao_performance(area_ratio, bell_fr, gamma)
+
+x_mln, y_mln, mesh = minimum_length_nozzle(M_exit, n_chars, gamma)
+perf_mln = moc_performance(mesh, gamma)
+
+Cf_ideal = thrust_coefficient_ideal(M_exit, gamma)
+
+# --- contour plot ---
+fig1, ax1 = plt.subplots(figsize=(7, 3.5))
+styled_axes(fig1, ax1)
+for (x, y, label, c) in [
+    (x_con, y_con, f'Conical {half_ang}\\u00b0',  '#ff6b6b'),
+    (x_rao, y_rao, f'Rao {int(bell_fr*100)}% bell', '#4ecdc4'),
+    (x_mln, y_mln, 'MLN',                           '#ffd93d'),
+]:
+    ax1.plot(x, y, '-', color=c, lw=1.8, label=label)
+    ax1.plot(x, -y, '-', color=c, lw=1.8)
+ax1.axhline(0, color='#555', lw=0.5, ls='--')
+ax1.set_xlabel('x / r*')
+ax1.set_ylabel('y / r*')
+ax1.set_title(f'Nozzle Contours  (M = {M_exit:.1f},  A/A* = {area_ratio:.3f})')
+ax1.set_aspect('equal')
+ax1.legend(fontsize=8)
+fig1.tight_layout()
+contour_img = fig_to_base64(fig1)
+plt.close(fig1)
+
+# --- exit distribution plot ---
+y_exit, M_exit_dist, theta_exit = mesh.get_exit_plane()
+fig2, axes2 = plt.subplots(1, 2, figsize=(7, 3))
+for a in axes2: styled_axes(fig2, a)
+if len(y_exit) > 1:
+    axes2[0].plot(y_exit, M_exit_dist, '-o', color='#4ecdc4', ms=2)
+    axes2[0].set_xlabel('y / r*'); axes2[0].set_ylabel('Mach')
+    axes2[0].set_title('Exit Mach'); axes2[0].grid(True, alpha=0.15, color='#555')
+    axes2[1].plot(y_exit, np.degrees(theta_exit), '-o', color='#ff6b6b', ms=2)
+    axes2[1].set_xlabel('y / r*'); axes2[1].set_ylabel('\\u03b8 [deg]')
+    axes2[1].set_title('Exit Flow Angle'); axes2[1].grid(True, alpha=0.15, color='#555')
+else:
+    for a in axes2:
+        a.text(0.5, 0.5, 'Insufficient exit data',
+               ha='center', va='center', transform=a.transAxes, color='#888')
+fig2.tight_layout()
+exit_img = fig_to_base64(fig2)
+plt.close(fig2)
+
+json.dumps({
+    'contour_img': contour_img,
+    'exit_img':    exit_img,
+    'Cf_ideal':    round(Cf_ideal, 4),
+    'area_ratio':  round(area_ratio, 4),
+    'conical': {'Cf': round(perf_con['Cf'], 4),
+                'pct': round(perf_con['Cf']/Cf_ideal*100, 1),
+                'note': f"\\u03bb={perf_con['lambda']:.4f}"},
+    'rao':     {'Cf': round(perf_rao['Cf'], 4),
+                'pct': round(perf_rao['Cf']/Cf_ideal*100, 1),
+                'note': f"\\u03b8n={perf_rao['theta_n_deg']:.1f}\\u00b0  \\u03b8e={perf_rao['theta_e_deg']:.1f}\\u00b0"},
+    'mln':     {'Cf': round(perf_mln['Cf'], 4),
+                'pct': round(perf_mln['Cf']/Cf_ideal*100, 1),
+                'note': f"M_mean={perf_mln['M_mean']:.3f}"},
+})
+`);
+                const data = JSON.parse(result);
+
+                document.getElementById('contour-plot').innerHTML =
+                    `<img src="data:image/png;base64,${data.contour_img}">`;
+                document.getElementById('exit-plot').innerHTML =
+                    `<img src="data:image/png;base64,${data.exit_img}">`;
+
+                document.getElementById('results-body').innerHTML = `
+                    <tr><td>1D Ideal</td><td>${data.Cf_ideal}</td><td>100.0%</td>
+                        <td>A/A* = ${data.area_ratio}</td></tr>
+                    <tr><td>Conical</td><td>${data.conical.Cf}</td><td>${data.conical.pct}%</td>
+                        <td>${data.conical.note}</td></tr>
+                    <tr><td>Rao Bell</td><td>${data.rao.Cf}</td><td>${data.rao.pct}%</td>
+                        <td>${data.rao.note}</td></tr>
+                    <tr><td>MLN</td><td>${data.mln.Cf}</td><td>${data.mln.pct}%</td>
+                        <td>${data.mln.note}</td></tr>`;
+
+                setStatus(
+                    `Done.  A/A* = ${data.area_ratio}   Cf_ideal = ${data.Cf_ideal}`,
+                    'ready'
+                );
+
+            } catch(err) {
+                setStatus('Error: ' + err.message, 'error');
+                console.error(err);
+            }
+
+            runBtn.disabled = false;
+            runBtn.textContent = 'Run Design';
+        });
+    })();
+    </script>
+</body>
+</html>
