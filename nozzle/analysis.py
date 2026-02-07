@@ -212,3 +212,49 @@ def moc_performance(mesh, gamma=1.4):
         'M_min': float(np.min(M_exit)),
         'theta_max_deg': float(np.degrees(np.max(np.abs(theta_exit)))),
     }
+
+
+def quasi_1d_performance(x_wall, y_wall, gamma=1.4):
+    """Estimate nozzle performance from quasi-1D area-Mach relation.
+
+    Computes M(x) from local area ratio y(x)^2, then integrates Cf
+    at the exit plane assuming uniform flow (theta=0). Useful for
+    custom/CSV contours where MOC analysis isn't available.
+
+    Parameters
+    ----------
+    x_wall, y_wall : ndarray
+        Wall contour coordinates (r*-normalized, y>=1).
+    gamma : float
+
+    Returns
+    -------
+    dict with: Cf, Cf_ideal, efficiency, M_exit, area_ratio
+    """
+    area_ratio = float(y_wall[-1] ** 2)
+    M_exit = mach_from_area_ratio(area_ratio, gamma=gamma)
+    Cf = thrust_coefficient_ideal(M_exit, gamma)
+    Cf_ideal = Cf  # quasi-1D is inherently ideal (no divergence loss)
+
+    # Estimate divergence loss from wall angle at exit
+    # theta_exit ≈ atan(dy/dx) at the end of the contour
+    if len(x_wall) >= 2:
+        dx = x_wall[-1] - x_wall[-2]
+        dy = y_wall[-1] - y_wall[-2]
+        theta_exit = np.arctan2(dy, dx) if dx > 0 else 0.0
+        # Apply divergence factor lambda = (1 + cos(theta_e))/2
+        lam = (1 + np.cos(theta_exit)) / 2
+        Cf = Cf_ideal * lam
+    else:
+        theta_exit = 0.0
+        lam = 1.0
+
+    return {
+        'Cf': Cf,
+        'Cf_ideal': Cf_ideal,
+        'efficiency': Cf / Cf_ideal if Cf_ideal > 0 else 1.0,
+        'M_exit': M_exit,
+        'area_ratio': area_ratio,
+        'lambda': lam,
+        'theta_exit_deg': float(np.degrees(theta_exit)),
+    }

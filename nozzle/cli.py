@@ -19,7 +19,10 @@ from nozzle.contours import (
     conical_nozzle, rao_parabolic_nozzle, minimum_length_nozzle,
     truncated_ideal_contour, conical_divergence_loss, load_contour_csv,
 )
-from nozzle.analysis import conical_performance, rao_performance, moc_performance
+from nozzle.analysis import (
+    conical_performance, rao_performance, moc_performance,
+    quasi_1d_performance,
+)
 from nozzle.gas import area_mach_ratio, mach_from_area_ratio, thrust_coefficient_ideal
 from nozzle.plots import (
     plot_contour, plot_contour_comparison, plot_performance_comparison,
@@ -87,13 +90,16 @@ def cmd_run(args):
     contours = []
 
     for name, cfg in configs.items():
-        print(f"\n--- {name} ---")
         nozzle_spec = build_nozzle_spec(cfg)
         result = _run_single(nozzle_spec, name, output_dir, outputs)
         results[name] = result
 
         if result.get('x_wall') is not None:
             contours.append((result['x_wall'], result['y_wall'], name))
+
+    # Print summary table
+    if 'performance' in outputs and results:
+        _print_summary_table(results)
 
     # Generate comparisons
     if len(contours) > 1 and 'contour' in outputs:
@@ -144,6 +150,43 @@ def cmd_run(args):
         print(f"Saved performance summary to {json_path}")
 
     return 0
+
+
+def _print_summary_table(results):
+    """Print an aligned performance summary table."""
+    # Compute 1D ideal for reference
+    rows = []
+    for name, r in results.items():
+        cf = r.get('Cf')
+        cf_ideal = r.get('Cf_ideal')
+        if cf is None:
+            continue
+        pct = (cf / cf_ideal * 100) if cf_ideal else 0
+        note = ''
+        rtype = r.get('type', '')
+        if rtype == 'conical':
+            note = f"lambda={r.get('lambda', 0):.4f}"
+        elif rtype == 'rao':
+            note = (f"theta_n={r.get('theta_n_deg', 0):.1f} "
+                    f"theta_e={r.get('theta_e_deg', 0):.1f}")
+        elif rtype in ('mln', 'tic'):
+            note = f"M_mean={r.get('M_mean', 0):.3f}"
+        elif rtype == 'custom':
+            note = f"lambda={r.get('lambda', 0):.4f} (quasi-1D)"
+        rows.append((name, cf, pct, note))
+
+    if not rows:
+        return
+
+    # Column widths
+    w_name = max(len(r[0]) for r in rows)
+    w_name = max(w_name, 6)  # "Nozzle" header
+
+    print(f"\n{'Nozzle':<{w_name}}   {'Cf':>8}   {'% Ideal':>7}   Notes")
+    print(f"{'-' * w_name}   {'--------':>8}   {'-------':>7}   -----")
+    for name, cf, pct, note in rows:
+        print(f"{name:<{w_name}}   {cf:>8.4f}   {pct:>6.1f}%   {note}")
+    print()
 
 
 def _write_contour_csv(path, x, y, name, spec):
@@ -243,11 +286,14 @@ def _run_single(spec, name, output_dir, outputs):
             result['y_wall'] = None
         else:
             x_wall, y_wall = load_contour_csv(contour_file)
+            perf = quasi_1d_performance(x_wall, y_wall, gamma)
+            result.update(perf)
             result['x_wall'] = x_wall
             result['y_wall'] = y_wall
-            result['area_ratio'] = float(y_wall[-1]**2)
             print(f"  Custom contour from {contour_file}: "
-                  f"{len(x_wall)} points, AR={result['area_ratio']:.2f}")
+                  f"{len(x_wall)} points, AR={perf['area_ratio']:.2f}, "
+                  f"Cf={perf['Cf']:.4f} (quasi-1D, "
+                  f"λ={perf['lambda']:.4f})")
 
     else:
         print(f"  Unknown type: {ntype}")
