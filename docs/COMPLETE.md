@@ -4,6 +4,30 @@ Move items here from TODO.md when done. Most recent at top.
 
 ---
 
+## Tolerance band visualization
+`plot_tolerance_band()` in plots.py — 3-panel comparison (contour overlay, delta
+radius, area ratio deviation %). CLI generates tolerance plots for every contour
+pair alongside delta plots. Web viewer shows up to 3 pairwise tolerance plots
+with dark theme styling. 4 new tests in test_plots.py, 359 total, all passing.
+*Completed 2026-02-08*
+
+## README and example configs
+Updated README.md with install, quick start, example output, validation summary,
+project structure, and Python API examples. Added 3 new example configs:
+`all_types.yaml` (all nozzle types at M=2), `tic_comparison.yaml` (TIC trade
+study at M=2.5), `high_mach.yaml` (M=4 with Sivells downstream). Created
+`docs/VALIDATION.md` validation matrix mapping every module to its reference
+source and tolerance.
+*Completed 2026-02-08*
+
+## TIC performance at truncated exit
+Switched TIC from `moc_performance(mesh)` (evaluated at full MLN exit) to
+`quasi_1d_performance(x_wall, y_wall)` (evaluated at truncated exit). Now
+correctly computes M_exit from truncated area ratio and λ = (1+cos θ_e)/2
+from wall angle at truncation. Summary table shows lambda for TIC.
+3 new performance tests in test_tic.py, 355 total, all passing.
+*Completed 2026-02-08*
+
 ## Sivells downstream contour
 `sivells_axial_downstream()` and `sivells_perfc_downstream()` — downstream axis
 polynomial + MOC march with reversed ofeld and mass integration. Integrated into

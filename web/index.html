@@ -339,6 +339,10 @@
                 <div class="panel-header">Exit Plane Mach Distribution</div>
                 <div class="panel-body" id="exit-plot"></div>
             </div>
+            <div class="panel full-width hidden" id="tolerance-panel">
+                <div class="panel-header">Tolerance Band Analysis</div>
+                <div class="panel-body" id="tolerance-plots"></div>
+            </div>
         </div>
 
         <!-- Export bar -->
@@ -355,6 +359,7 @@
         const statusEl = document.getElementById('status');
         const runBtn = document.getElementById('run-btn');
         const exitPanel = document.getElementById('exit-panel');
+        const tolerancePanel = document.getElementById('tolerance-panel');
         const exportBar = document.getElementById('export-bar');
 
         // Type colors (fixed per type)
@@ -701,10 +706,79 @@ if exit_data is not None:
     exit_img = fig_to_base64(fig2)
     plt.close(fig2)
 
+# --- Tolerance band plots (pairwise, up to 3 pairs) ---
+tolerance_imgs = []
+valid_nozzles = [nz for nz in nozzles if len(nz['x']) > 0]
+pair_count = 0
+for i in range(len(valid_nozzles)):
+    for j in range(i + 1, len(valid_nozzles)):
+        if pair_count >= 3:
+            break
+        nz_a, nz_b = valid_nozzles[i], valid_nozzles[j]
+        x_a, y_a = np.array(nz_a['x']), np.array(nz_a['y'])
+        x_b, y_b = np.array(nz_b['x']), np.array(nz_b['y'])
+        x_lo = max(x_a[0], x_b[0])
+        x_hi = min(x_a[-1], x_b[-1])
+        if x_hi <= x_lo:
+            continue
+        xc = np.linspace(x_lo, x_hi, 500)
+        yn = np.interp(xc, x_a, y_a)
+        ya = np.interp(xc, x_b, y_b)
+        dy = ya - yn
+        area_dev = np.where(yn > 0, (ya / yn) ** 2 - 1, 0.0)
+
+        fig_t, axes_t = plt.subplots(1, 3, figsize=(14, 3.2))
+        for a in axes_t:
+            styled_axes(fig_t, a)
+
+        # Panel 1: contour overlay
+        ax = axes_t[0]
+        ax.plot(xc, yn, '-', color=nz_a['color'], lw=1.5, label=nz_a['name'])
+        ax.plot(xc, ya, '--', color=nz_b['color'], lw=1.5, label=nz_b['name'])
+        ax.fill_between(xc, yn, ya, color='gray', alpha=0.2)
+        ax.set_xlabel('x / r*'); ax.set_ylabel('y / r*')
+        ax.set_title('Contour Overlay')
+        ax.set_aspect('equal'); ax.legend(fontsize=7)
+        ax.grid(True, alpha=0.15, color='#555')
+
+        # Panel 2: delta radius
+        ax = axes_t[1]
+        ax.plot(xc, dy, '-', color='#ccc', lw=0.8)
+        ax.axhline(0, color='#555', lw=0.3)
+        ax.fill_between(xc, 0, dy, where=(dy >= 0), color='#4a8eff', alpha=0.4,
+                        label=f'{nz_b["name"]} wider')
+        ax.fill_between(xc, 0, dy, where=(dy < 0), color='#ff6b6b', alpha=0.4,
+                        label=f'{nz_a["name"]} wider')
+        dy_max = max(abs(dy.max()), abs(dy.min()), 1e-6)
+        ax.set_ylim(-1.5 * dy_max, 1.5 * dy_max)
+        ax.set_xlabel('x / r*'); ax.set_ylabel('\\u0394y / r*')
+        ax.set_title('Delta Radius'); ax.legend(fontsize=7)
+        ax.grid(True, alpha=0.15, color='#555')
+
+        # Panel 3: area ratio deviation
+        ax = axes_t[2]
+        area_pct = area_dev * 100
+        ax.plot(xc, area_pct, '-', color='#ccc', lw=0.8)
+        ax.axhline(0, color='#555', lw=0.3)
+        ax.fill_between(xc, 0, area_pct, where=(area_pct >= 0), color='#4a8eff', alpha=0.4)
+        ax.fill_between(xc, 0, area_pct, where=(area_pct < 0), color='#ff6b6b', alpha=0.4)
+        ax.set_xlabel('x / r*'); ax.set_ylabel('\\u0394A/A [%]')
+        ax.set_title('Area Ratio Deviation')
+        ax.grid(True, alpha=0.15, color='#555')
+
+        fig_t.suptitle(f'{nz_b["name"]} vs {nz_a["name"]}', fontsize=10, color='#ddd')
+        fig_t.tight_layout()
+        tolerance_imgs.append(fig_to_base64(fig_t))
+        plt.close(fig_t)
+        pair_count += 1
+    if pair_count >= 3:
+        break
+
 # --- Build result ---
 result = {
     'contour_img': contour_img,
     'exit_img': exit_img,
+    'tolerance_imgs': tolerance_imgs,
     'Cf_ideal': round(Cf_ideal, 4),
     'area_ratio': round(area_ratio, 4),
     'nozzles': [{
@@ -735,6 +809,18 @@ json.dumps(result)
                         `<img src="data:image/png;base64,${data.exit_img}">`;
                 } else {
                     exitPanel.classList.add('hidden');
+                }
+
+                // Update tolerance plots
+                if (data.tolerance_imgs && data.tolerance_imgs.length > 0) {
+                    tolerancePanel.classList.remove('hidden');
+                    let tolHTML = '';
+                    for (const img of data.tolerance_imgs) {
+                        tolHTML += `<img src="data:image/png;base64,${img}" style="margin-bottom:0.75rem;">`;
+                    }
+                    document.getElementById('tolerance-plots').innerHTML = tolHTML;
+                } else {
+                    tolerancePanel.classList.add('hidden');
                 }
 
                 // Update performance table

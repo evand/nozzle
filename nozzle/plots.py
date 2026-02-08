@@ -282,3 +282,112 @@ def plot_contour_delta(x_a, y_a, label_a, x_b, y_b, label_b, title=None):
     fig.suptitle(title, fontsize=11)
     fig.tight_layout()
     return fig, axes
+
+
+def plot_tolerance_band(x_nom, y_nom, label_nom,
+                        x_act, y_act, label_act,
+                        tol=None, title=None):
+    """Three-panel tolerance comparison between two contours.
+
+    Panel 1: Half-contour overlay with out-of-tolerance highlights.
+    Panel 2: Delta radius (dy) vs axial position.
+    Panel 3: Area ratio deviation as percentage.
+
+    Parameters
+    ----------
+    x_nom, y_nom : ndarray
+        Nominal (reference) contour.
+    label_nom : str
+        Name of nominal contour.
+    x_act, y_act : ndarray
+        Actual (comparison) contour.
+    label_act : str
+        Name of actual contour.
+    tol : float or None
+        Radial tolerance in r* units.  When provided, highlights
+        out-of-tolerance regions on panels 1 and 2.
+    title : str or None
+        Overall figure title.
+
+    Returns
+    -------
+    fig, axes
+    """
+    # Common x grid over shared domain
+    x_lo = max(x_nom[0], x_act[0])
+    x_hi = min(x_nom[-1], x_act[-1])
+    x_common = np.linspace(x_lo, x_hi, 500)
+
+    yn = np.interp(x_common, x_nom, y_nom)
+    ya = np.interp(x_common, x_act, y_act)
+    dy = ya - yn
+    # Area ratio deviation: (y_act/y_nom)^2 - 1
+    with np.errstate(divide='ignore', invalid='ignore'):
+        area_dev = np.where(yn > 0, (ya / yn) ** 2 - 1, 0.0)
+
+    if title is None:
+        title = f"Tolerance: {label_act} vs {label_nom}"
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+
+    # --- Panel 1: contour overlay ---
+    ax = axes[0]
+    ax.plot(x_common, yn, 'b-', linewidth=1.5, label=label_nom)
+    ax.plot(x_common, ya, 'r--', linewidth=1.5, label=label_act)
+    if tol is not None:
+        out = np.abs(dy) > tol
+        ax.fill_between(x_common, yn, ya, where=out,
+                        color='red', alpha=0.25, label='Out of tol')
+        ax.fill_between(x_common, yn, ya, where=~out,
+                        color='green', alpha=0.15, label='Within tol')
+    else:
+        ax.fill_between(x_common, yn, ya, color='gray', alpha=0.2)
+    ax.set_xlabel("x / r*")
+    ax.set_ylabel("y / r*")
+    ax.set_title("Contour Overlay")
+    ax.set_aspect('equal')
+    ax.legend(fontsize=7)
+    ax.grid(True, alpha=0.2)
+
+    # --- Panel 2: delta radius ---
+    ax = axes[1]
+    ax.plot(x_common, dy, 'k-', linewidth=0.8)
+    ax.axhline(0, color='k', linewidth=0.3)
+    if tol is not None:
+        ax.axhline(tol, color='gray', linewidth=0.5, linestyle='--')
+        ax.axhline(-tol, color='gray', linewidth=0.5, linestyle='--')
+        out = np.abs(dy) > tol
+        ax.fill_between(x_common, 0, dy, where=out,
+                        color='red', alpha=0.3)
+        ax.fill_between(x_common, 0, dy, where=~out,
+                        color='green', alpha=0.2)
+    else:
+        ax.fill_between(x_common, 0, dy, where=(dy >= 0),
+                        color='#4a8eff', alpha=0.4, label=f'{label_act} wider')
+        ax.fill_between(x_common, 0, dy, where=(dy < 0),
+                        color='#ff6b6b', alpha=0.4, label=f'{label_nom} wider')
+        ax.legend(fontsize=7)
+    dy_max = max(abs(dy.max()), abs(dy.min()), 1e-6)
+    ax.set_ylim(-1.5 * dy_max, 1.5 * dy_max)
+    ax.set_xlabel("x / r*")
+    ax.set_ylabel("\u0394y / r*")
+    ax.set_title("Delta Radius")
+    ax.grid(True, alpha=0.2)
+
+    # --- Panel 3: area ratio deviation ---
+    ax = axes[2]
+    area_pct = area_dev * 100
+    ax.plot(x_common, area_pct, 'k-', linewidth=0.8)
+    ax.axhline(0, color='k', linewidth=0.3)
+    ax.fill_between(x_common, 0, area_pct, where=(area_pct >= 0),
+                    color='#4a8eff', alpha=0.4)
+    ax.fill_between(x_common, 0, area_pct, where=(area_pct < 0),
+                    color='#ff6b6b', alpha=0.4)
+    ax.set_xlabel("x / r*")
+    ax.set_ylabel("\u0394A/A [%]")
+    ax.set_title("Area Ratio Deviation")
+    ax.grid(True, alpha=0.2)
+
+    fig.suptitle(title, fontsize=11)
+    fig.tight_layout()
+    return fig, axes

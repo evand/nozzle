@@ -267,9 +267,9 @@ def truncated_ideal_contour(M_exit, truncation_fraction=0.8, n_chars=50,
     y_wall : ndarray
         Radial wall coordinates (normalized by throat radius).
     mesh : CharMesh
-        Full MLN characteristic mesh. Note: moc_performance(mesh) evaluates
-        at the full MLN exit plane, not the truncated exit. TODO: add
-        cross-section evaluation at x_trunc for accurate TIC performance.
+        Full MLN characteristic mesh (used for exit plane visualization;
+        TIC performance is computed via quasi_1d_performance on the
+        truncated wall contour).
     """
     # Generate full MLN
     x_full, y_full, mesh = minimum_length_nozzle(M_exit, n_chars, gamma)

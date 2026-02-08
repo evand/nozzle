@@ -1,0 +1,32 @@
+# All nozzle types at M=2.0 for side-by-side comparison
+# nozzle run examples/configs/all_types.yaml
+
+configs:
+  conical:
+    type: conical
+    gamma: 1.4
+    M_exit: 2.0
+    half_angle_deg: 15
+
+  rao:
+    type: rao
+    gamma: 1.4
+    M_exit: 2.0
+    bell_fraction: 0.8
+
+  tic_80:
+    type: tic
+    gamma: 1.4
+    M_exit: 2.0
+    truncation_fraction: 0.8
+    n_chars: 30
+
+  mln:
+    type: mln
+    gamma: 1.4
+    M_exit: 2.0
+    n_chars: 30
+
+outputs:
+  - contour
+  - performance

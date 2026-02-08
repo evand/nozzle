@@ -27,7 +27,7 @@ from nozzle.analysis import (
 from nozzle.gas import area_mach_ratio, mach_from_area_ratio, thrust_coefficient_ideal
 from nozzle.plots import (
     plot_contour, plot_contour_comparison, plot_performance_comparison,
-    plot_contour_delta,
+    plot_contour_delta, plot_tolerance_band,
 )
 
 
@@ -122,6 +122,14 @@ def cmd_run(args):
                 plt.close(fig)
                 print(f"Saved delta plot to {output_dir / fname}")
 
+                fig_tol, _ = plot_tolerance_band(x_a, y_a, name_a,
+                                                  x_b, y_b, name_b)
+                fname = f'tolerance_{name_a}_vs_{name_b}.png'
+                fig_tol.savefig(output_dir / fname, dpi=150,
+                                bbox_inches='tight')
+                plt.close(fig_tol)
+                print(f"Saved tolerance plot to {output_dir / fname}")
+
     if len(results) > 1 and 'performance' in outputs:
         perf_data = [(name, r.get('Cf', 0)) for name, r in results.items()
                      if r.get('Cf') is not None]
@@ -170,8 +178,10 @@ def _print_summary_table(results):
         elif rtype == 'rao':
             note = (f"theta_n={r.get('theta_n_deg', 0):.1f} "
                     f"theta_e={r.get('theta_e_deg', 0):.1f}")
-        elif rtype in ('mln', 'tic'):
+        elif rtype == 'mln':
             note = f"M_mean={r.get('M_mean', 0):.3f}"
+        elif rtype == 'tic':
+            note = f"lambda={r.get('lambda', 0):.4f}"
         elif rtype == 'sivells':
             ds = r.get('downstream', False)
             scope = "full" if ds else "upstream only"
@@ -274,15 +284,14 @@ def _run_single(spec, name, output_dir, outputs):
         x_wall, y_wall, mesh = truncated_ideal_contour(
             M_exit, trunc_frac, n_chars, gamma
         )
-        perf = moc_performance(mesh, gamma)
+        perf = quasi_1d_performance(x_wall, y_wall, gamma)
         result.update(perf)
         result['x_wall'] = x_wall
         result['y_wall'] = y_wall
         result['mesh'] = mesh
-        # TODO: Cf is evaluated at full MLN exit plane, not the truncated exit.
-        # Fix as part of comparisons task (evaluate at x_trunc cross-section).
-        print(f"  TIC {trunc_frac*100:.0f}% M={M_exit:.1f}: Cf={perf['Cf']:.4f}, "
-              f"M_mean={perf['M_mean']:.3f} (Cf from full MLN mesh)")
+        print(f"  TIC {trunc_frac*100:.0f}% M={M_exit:.1f}: "
+              f"θ_e={perf['theta_exit_deg']:.1f}°, "
+              f"Cf={perf['Cf']:.4f} (λ={perf['lambda']:.4f})")
 
     elif ntype == 'sivells':
         M_exit = spec['M_exit']

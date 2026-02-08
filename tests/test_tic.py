@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 from nozzle.contours import truncated_ideal_contour, minimum_length_nozzle
+from nozzle.analysis import moc_performance, quasi_1d_performance
 
 
 class TestTIC:
@@ -43,3 +44,36 @@ class TestTIC:
         x60, _, _ = truncated_ideal_contour(2.0, 0.6, n_chars=15)
         x80, _, _ = truncated_ideal_contour(2.0, 0.8, n_chars=15)
         assert x60[-1] < x80[-1]
+
+
+class TestTICPerformance:
+
+    def test_tic_cf_less_than_mln(self):
+        """TIC Cf < MLN Cf due to non-zero exit wall angle (divergence loss)."""
+        x_mln, y_mln, mesh_mln = minimum_length_nozzle(2.0, n_chars=15)
+        perf_mln = moc_performance(mesh_mln)
+
+        x_tic, y_tic, _ = truncated_ideal_contour(2.0, 0.8, n_chars=15)
+        perf_tic = quasi_1d_performance(x_tic, y_tic)
+
+        assert perf_tic['Cf'] < perf_mln['Cf']
+
+    def test_tic_cf_increases_with_fraction(self):
+        """Longer TIC fraction → smaller exit angle → higher Cf."""
+        x60, y60, _ = truncated_ideal_contour(2.0, 0.6, n_chars=15)
+        x90, y90, _ = truncated_ideal_contour(2.0, 0.9, n_chars=15)
+
+        perf60 = quasi_1d_performance(x60, y60)
+        perf90 = quasi_1d_performance(x90, y90)
+
+        assert perf90['Cf'] > perf60['Cf']
+
+    def test_tic_100pct_cf_equals_mln(self):
+        """At 100% truncation, TIC Cf ≈ MLN Cf (wall angle → 0)."""
+        x_mln, y_mln, mesh_mln = minimum_length_nozzle(2.0, n_chars=15)
+        perf_mln = moc_performance(mesh_mln)
+
+        x_tic, y_tic, _ = truncated_ideal_contour(2.0, 1.0, n_chars=15)
+        perf_tic = quasi_1d_performance(x_tic, y_tic)
+
+        assert perf_tic['Cf'] == pytest.approx(perf_mln['Cf'], rel=0.01)

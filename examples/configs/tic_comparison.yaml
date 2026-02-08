@@ -1,0 +1,28 @@
+# Compare TIC truncation fractions against full MLN
+# nozzle run examples/configs/tic_comparison.yaml
+
+configs:
+  mln:
+    type: mln
+    gamma: 1.4
+    M_exit: 2.5
+    n_chars: 30
+
+  tic_60:
+    type: tic
+    gamma: 1.4
+    M_exit: 2.5
+    n_chars: 30
+    truncation_fraction: 0.6
+
+  tic_80:
+    base: tic_60
+    truncation_fraction: 0.8
+
+  tic_90:
+    base: tic_60
+    truncation_fraction: 0.9
+
+outputs:
+  - contour
+  - performance

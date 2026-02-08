@@ -1,0 +1,36 @@
+# High-Mach nozzle design comparison (M=4.0)
+# nozzle run examples/configs/high_mach.yaml
+
+configs:
+  conical_15:
+    type: conical
+    gamma: 1.4
+    M_exit: 4.0
+    half_angle_deg: 15
+
+  rao_80:
+    type: rao
+    gamma: 1.4
+    M_exit: 4.0
+    bell_fraction: 0.8
+
+  mln:
+    type: mln
+    gamma: 1.4
+    M_exit: 4.0
+    n_chars: 30
+
+  sivells:
+    type: sivells
+    gamma: 1.4
+    M_exit: 4.0
+    rc: 6.0
+    inflection_angle_deg: 8.67
+    n_char: 41
+    n_axis: 21
+    nx: 13
+    downstream: true
+
+outputs:
+  - contour
+  - performance

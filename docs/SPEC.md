@@ -42,7 +42,7 @@ The tool accepts nozzle design parameters via YAML config files:
 | Conical | Straight divergent wall at half-angle | Analytical (lambda) |
 | Rao parabolic | Cubic bezier approximation of ideal bell | Analytical (lambda) |
 | MLN | Method of characteristics, minimum length | MOC exit plane integration |
-| TIC | Truncated ideal contour | MOC exit plane integration |
+| TIC | Truncated ideal contour | Quasi-1D with divergence loss |
 | Custom CSV | User-supplied (x, y) contour | MOC analysis (future) |
 
 ## Comparisons
