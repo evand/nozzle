@@ -173,7 +173,9 @@ def _print_summary_table(results):
         elif rtype in ('mln', 'tic'):
             note = f"M_mean={r.get('M_mean', 0):.3f}"
         elif rtype == 'sivells':
-            note = f"lambda={r.get('lambda', 0):.4f} (upstream only)"
+            ds = r.get('downstream', False)
+            scope = "full" if ds else "upstream only"
+            note = f"lambda={r.get('lambda', 0):.4f} ({scope})"
         elif rtype == 'custom':
             note = f"lambda={r.get('lambda', 0):.4f} (quasi-1D)"
         rows.append((name, cf, pct, note))
@@ -284,6 +286,7 @@ def _run_single(spec, name, output_dir, outputs):
 
     elif ntype == 'sivells':
         M_exit = spec['M_exit']
+        ds = spec.get('downstream', False)
         x_wall, y_wall = sivells_nozzle(
             M_exit, gamma=gamma,
             rc=spec.get('rc', 1.5),
@@ -293,16 +296,23 @@ def _run_single(spec, name, output_dir, outputs):
             nx=spec.get('nx', 13),
             ix=spec.get('ix', 0),
             ie=spec.get('ie', 0),
+            downstream=ds,
+            ip=spec.get('ip', 10),
+            md=spec.get('md'),
+            nd=spec.get('nd'),
+            nf=spec.get('nf'),
         )
         perf = quasi_1d_performance(x_wall, y_wall, gamma)
         result.update(perf)
         result['x_wall'] = x_wall
         result['y_wall'] = y_wall
+        result['downstream'] = ds
         eta = spec.get('inflection_angle_deg')
         eta_str = f"{eta:.1f}" if eta is not None else "auto"
+        scope = "full" if ds else "upstream only"
         print(f"  Sivells M={M_exit:.1f}: {len(x_wall)} pts, "
               f"θ_infl={eta_str}°, "
-              f"Cf={perf['Cf']:.4f} (quasi-1D, λ={perf['lambda']:.4f})")
+              f"Cf={perf['Cf']:.4f} (quasi-1D, λ={perf['lambda']:.4f}, {scope})")
 
     elif ntype == 'custom':
         contour_file = spec.get('contour_file', '')

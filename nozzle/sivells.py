@@ -1265,6 +1265,185 @@ def sivells_axial(gamma, eta_deg, rc, bmach, cmach, ie=0,
 
 
 # ==========================================================================
+# axial.f — Downstream centerline Mach distribution (labels 50→85)
+# ==========================================================================
+
+def sivells_axial_downstream(axial_result, gamma=1.4, ie=0,
+                             ip=10, md=None, nd=None, nf=None):
+    """Compute the downstream axis Mach distribution.
+
+    Port of axial.f labels 58→62→63→68 (ip≠0, lc=0 path). Computes
+    a polynomial Mach distribution from bmach (inflection) to cmach (exit)
+    and fills the axis array for the downstream MOC march.
+
+    The polynomial degree depends on mcp (= cmach, always positive for
+    standard usage): mcp > 0 gives 5th-degree coefficients with c[5]=0
+    (effectively 4th-degree), mcp < 0 gives 4th-degree (3rd-degree).
+
+    Parameters
+    ----------
+    axial_result : dict
+        Output from sivells_axial() (upstream pass).
+    gamma : float
+    ie : int
+        0 for planar, 1 for axisymmetric.
+    ip : int
+        Downstream control parameter (from CONTUR ``in``). Positive for
+        Mach-based distribution. Default 10.
+    md : int or None
+        Number of points on first downstream characteristic.
+        Defaults to axial_result['n_char'].
+    nd : int or None
+        Number of downstream axis points.
+        Defaults to max(49, int(2.5 * n_axis)).
+    nf : int or None
+        Number of points on exit characteristic (negative sign
+        triggers smoothing in CONTUR). Defaults to -(m + 20).
+
+    Returns
+    -------
+    result : dict
+        - 'axis': ndarray (5, nd) — downstream axis [x, 0, M, psi, dtheta/dy]
+        - 'c': ndarray (6,) — polynomial coefficients
+        - 'xb', 'xbc', 'xc': key x-positions
+        - 'bmp', 'bmpp': Mach derivatives at bmach
+        - 'm', 'n', 'np_pts': characteristic/axis/exit point counts
+    """
+    g = contur_gas_constants(gamma)
+    g2, g4, g5, g6, g7, g8, ga = (
+        g['g2'], g['g4'], g['g5'], g['g6'], g['g7'], g['g8'], g['ga']
+    )
+    g9 = g['g9']
+    qt = 1.0 / (1 + ie)
+
+    n_char_up = axial_result['n_char']
+    n_axis_up = axial_result['n_axis']
+    m = md if md is not None else n_char_up
+    n = nd if nd is not None else max(49, int(2.5 * n_axis_up))
+
+    # Downstream starts at the inflection Mach (input bmach for the conic flow).
+    # Recover from the upstream Prandtl-Meyer angle at inflection (bpsi).
+    bmach = mach_from_prandtl_meyer(axial_result['bpsi'], gamma)
+    # Exit Mach from cbet: cbet = sqrt(M²-1) at cmach
+    cmach = np.sqrt(axial_result['cbet']**2 + 1.0)
+
+    tye = axial_result['tye']
+    cbet = axial_result['cbet']
+
+    # In CONTUR, mcp = cmc where cmc is the input parameter whose absolute
+    # value is cmach. For standard usage, mcp = cmach > 0 always.
+    mcp = cmach
+
+    # --- Conic derivatives at bmach (axial.f line 576: call conic(bmach,d)) ---
+    d = conic_derivatives(bmach, gamma, ie)
+    xb = d[0]      # conic x-position at bmach
+    bmp = d[1]      # dM/dx at bmach (conic)
+    smpp = d[2]     # d²M/dx² at bmach (conic)
+    smppp = d[3]    # d³M/dx³ at bmach (conic)
+
+    cbm = cmach - bmach  # Mach increment
+    bmpp = smpp * ip / 10.0  # scaled second derivative (axial.f line 583)
+
+    # --- Compute xbc (downstream axis length) ---
+    # axial.f lines 585-594: lc=0 path (standard, no custom axis)
+    # Uses a rational formula depending on mcp sign.
+    if mcp > 0:
+        # 4th-degree polynomial (axial.f lines 588-590)
+        xbcn = 4.0 * cbm / bmp
+        xbcm = -3.0 * bmp / bmpp if abs(bmpp) > 1e-30 else 1e30
+    else:
+        # 3rd-degree polynomial (axial.f lines 586-587)
+        xbcn = 3.0 * cbm / bmp
+        xbcm = -2.0 * bmp / bmpp if abs(bmpp) > 1e-30 else 1e30
+
+    abcm = 1.0 - xbcn / xbcm
+    if abcm < 0:
+        raise RuntimeError(
+            f"Downstream bounds check failed: abcm={abcm}, "
+            f"xbcn={xbcn}, xbcm={xbcm}"
+        )
+    xbc = xbcn / (np.sqrt(abcm) + 1.0)
+    xc = xb + xbc
+
+    # Exit plane position (axial.f line 514: xd = xc + tye*cbet)
+    xd = xc + tye * cbet
+
+    # --- Polynomial coefficients (axial.f lines 617-624) ---
+    c = np.zeros(6)
+    c[0] = bmach                    # C1
+    c[1] = xbc * bmp               # C2
+    c[2] = 0.5 * xbc**2 * bmpp     # C3
+
+    if mcp > 0:
+        # 5th-degree formulas (axial.f lines 621-623)
+        c[3] = 10.0 * cbm - 6.0 * c[1] - 3.0 * c[2]
+        c[4] = -15.0 * cbm + 8.0 * c[1] + 3.0 * c[2]
+        c[5] = 6.0 * cbm - 3.0 * c[1] - c[2]
+    else:
+        # 4th-degree formulas (axial.f lines 619-620)
+        c[3] = 4.0 * cbm - 3.0 * c[1] - 2.0 * c[2]
+        c[4] = -3.0 * cbm + 2.0 * c[1] + c[2]
+        c[5] = 0.0
+
+    # lc=0: zero quintic term (axial.f line 624: if(lc.le.0) c(6)=zro)
+    c[5] = 0.0
+
+    # --- Fill axis array (axial.f lines 657-727, ip≠0 path) ---
+    # For downstream: LINEAR spacing q = (k-1)/(n-1) from 0 to 1
+    axis = np.zeros((5, n))
+    fn = float(n - 1)
+
+    for k in range(n):
+        q = float(k) / fn  # linear: 0 at start, 1 at end
+
+        # x position (axial.f line 665)
+        axis[0, k] = xbc * q + xb
+
+        # Mach from polynomial (axial.f lines 674-677)
+        xm = c[0] + q * (c[1] + q * (c[2] + q * (c[3] + q * (c[4] + q * c[5]))))
+
+        # Mach derivative dM/dx (axial.f lines 685-688)
+        wp_mach = (c[1] + q * (2 * c[2] + q * (3 * c[3] + q * (
+            4 * c[4] + q * 5 * c[5])))) / xbc
+
+        # Velocity w = q/a* at this Mach
+        w_val = g2 * xm / np.sqrt(xm**2 + g9)
+
+        # Store (axial.f lines 723-727)
+        axis[1, k] = 0.0  # y = 0 (axis)
+        axis[2, k] = xm   # Mach number
+        xbet = np.sqrt(max(xm**2 - 1.0, 0.0))
+        axis[3, k] = g2 * np.arctan(g4 * xbet) - np.arctan(xbet)  # psi
+        # dtheta/dy on axis (ie * (M - 1/M) * (dM/dx) / (2*w))
+        axis[4, k] = ie * 0.5 * (xm - 1.0 / xm) * wp_mach / w_val
+
+    # Number of points on exit (last) characteristic
+    if nf is not None:
+        np_pts = abs(nf)
+    else:
+        np_pts = m + 20
+
+    return {
+        'axis': axis,
+        'c': c,
+        'xb': xb,
+        'xbc': xbc,
+        'xc': xc,
+        'xd': xd,
+        'bmp': bmp,
+        'bmpp': bmpp,
+        'smpp': smpp,
+        'smppp': smppp,
+        'm': m,
+        'n': n,
+        'np_pts': np_pts,
+        'bmach': bmach,
+        'cmach': cmach,
+        'mcp': mcp,
+    }
+
+
+# ==========================================================================
 # perfc.f — MOC contour generation (upstream)
 # ==========================================================================
 
@@ -1691,4 +1870,351 @@ def sivells_perfc(axial_result, gamma=1.4, ie=0):
         'wall_raw': wall[:, 1:nl + 2],  # convert to 0-indexed output
         'mass': total_mass,
         'n_wall': nut,
+    }
+
+
+# ==========================================================================
+# perfc.f — MOC contour generation (downstream, ip≠0)
+# ==========================================================================
+
+def sivells_perfc_downstream(axial_result, ds_axial_result, gamma=1.4, ie=0):
+    """Compute the downstream nozzle contour using MOC with mass flow integration.
+
+    Port of perfc.f for the ip≠0 (downstream/compression) path. This:
+    1. Sets up the exit characteristic (fclast) at cmach
+    2. Sets up the initial radial flow characteristic at bmach (bpsi - t/qt)
+    3. Marches characteristics from inflection toward exit using ofeld
+       with REVERSED arg order (b, a) compared to upstream
+    4. Integrates mass flow with sin(μ-θ) weighting
+    5. Finds wall position by mass interpolation
+    6. Matches against exit characteristic for final lines
+    7. Wall y comes directly from the MOC march (no slope integration needed)
+
+    Parameters
+    ----------
+    axial_result : dict
+        Output from sivells_axial() (upstream pass).
+    ds_axial_result : dict
+        Output from sivells_axial_downstream().
+    gamma : float
+    ie : int
+        0 for planar, 1 for axisymmetric.
+
+    Returns
+    -------
+    result : dict
+        Same format as sivells_perfc: wax, way, wmn, wan, waltan, secd,
+        mass, n_wall.
+    """
+    g = contur_gas_constants(gamma)
+    g2, g4, g5, g6, g7, g8, ga = (
+        g['g2'], g['g4'], g['g5'], g['g6'], g['g7'], g['g8'], g['ga']
+    )
+    qt = 1.0 / (1 + ie)
+    conv = 180.0 / np.pi
+    zro = 0.0
+    one = 1.0
+    two = 2.0
+    half = 0.5
+    six = 6.0
+
+    # --- Unpack upstream result ---
+    eta_rad = np.arccos(axial_result['cse'])
+    se = eta_rad if ie == 0 else 2.0 * np.sin(0.5 * eta_rad)
+    bpsi = axial_result['bpsi']
+    epsi = axial_result['epsi']
+    cbet = axial_result['cbet']
+    tye = axial_result['tye']
+
+    # --- Unpack downstream result ---
+    axis_0 = ds_axial_result['axis']   # (5, n)
+    m = ds_axial_result['m']           # points on first characteristic
+    n = ds_axial_result['n']           # axis points
+    np_pts = ds_axial_result['np_pts']  # points on exit characteristic
+    cmach = ds_axial_result['cmach']
+    bmach = ds_axial_result['bmach']
+    xc = ds_axial_result['xc']
+
+    # Convert axis to 1-indexed
+    axis = np.zeros((5, n + 1))
+    for k in range(n):
+        axis[:, k + 1] = axis_0[:, k]
+
+    # --- Phase 1: Setup exit characteristic (fclast) ---
+    # perfc.f lines 142-153: fclast at cmach with theta=0
+    nl = n + np_pts - 1  # total lines
+    cpsi = g2 * np.arctan(g4 * cbet) - np.arctan(cbet)
+
+    fclast = np.zeros((5, np_pts + 1))  # 1-indexed
+    su_exit = np.zeros(np_pts + 1)
+    fn_exit = float(np_pts - 1)
+
+    for jj in range(1, np_pts + 1):
+        t = (jj - 1) / fn_exit
+        fclast[0, jj] = xc + t * tye * cbet  # x = xc + y*cbet (C- at exit)
+        fclast[1, jj] = t * tye              # y linear from 0 to tye
+        fclast[2, jj] = cmach
+        fclast[3, jj] = cpsi
+        fclast[4, jj] = zro  # theta = 0 (uniform exit flow)
+        su_exit[jj] = fclast[1, jj]**(ie + 1)  # mass weight
+
+    # --- Phase 2: Initial radial flow characteristic ---
+    # perfc.f lines 156-170: ip≠0 path
+    em = eta_rad / (m - 1)
+    MAXPTS = max(m, np_pts) + m + 5
+    a = np.zeros((5, MAXPTS + 1))
+    b = np.zeros((5, MAXPTS + 1))
+
+    for k_f in range(1, m + 1):
+        t = (k_f - 1) * em
+        psi_k = bpsi - t / qt  # NOTE: minus for downstream
+        xm = mach_from_prandtl_meyer(psi_k, gamma)
+        r = ((g6 + g5 * xm**2)**ga / xm)**qt
+        xbet = np.sqrt(xm**2 - one)
+        a[0, k_f] = r * np.cos(t)
+        a[1, k_f] = r * np.sin(t)
+        a[2, k_f] = xm
+        a[3, k_f] = g2 * np.arctan(g4 * xbet) - np.arctan(xbet)
+        a[4, k_f] = t
+
+    if ie == 1:
+        a[4, 1] = axis[4, 1]  # downstream axis reference
+
+    # --- Phase 3: Initialize wall and march ---
+    wall = np.zeros((5, nl + 3))
+    for j in range(5):
+        wall[j, 1] = a[j, m]  # wall(1) = inflection point on first char
+
+    line = 1
+    nn = 1
+    su = np.zeros(MAXPTS + 1)
+    # Pre-populate su from exit characteristic (perfc.f line 152: su(jj)=f**(ie+1))
+    for jj in range(1, np_pts + 1):
+        f_val = float(jj - 1) / fn_exit
+        su[jj] = f_val**(ie + 1)
+    su[1] = zro  # perfc.f line 182: unconditionally zero su(1)
+
+    # Copy a → b
+    for k_f in range(1, m + 1):
+        for j in range(5):
+            b[j, k_f] = a[j, k_f]
+    last = m - 1
+
+    # Working arrays for mass integration
+    s = np.zeros(MAXPTS + 1)
+    fs = np.zeros(MAXPTS + 1)
+
+    total_mass = None
+
+    def _mass_integrate_and_find_wall_ds():
+        """Downstream mass integration along current b characteristic.
+
+        Key differences from upstream:
+        - dsx = 1/sin(μ - θ) instead of 1/sin(μ + θ)
+        - s[j] = b[1,j] - b[1,nn] (y-displacement, same as upstream)
+
+        Returns total_mass for line=1, else None.
+        """
+        nonlocal last
+        lastp = last + 1
+
+        for j_f in range(nn, lastp + 1):
+            bx_loc = one / se if ie == 0 else two * b[1, j_f] / se**2
+            xm = b[2, j_f]
+            if xm < 1.0:
+                xm = max(xm, 1.001)
+            xmur = np.arcsin(one / xm)
+            s[j_f] = b[1, j_f] - b[1, nn]
+            # Downstream: dsx = 1/sin(μ - θ)
+            dsx = one / np.sin(xmur - b[4, j_f])
+            if b[1, j_f] == zro:
+                dsx = xm
+            fs[j_f] = dsx * bx_loc / (g6 + g5 * xm**2)**ga
+
+        # Simpson integration
+        sa, sb, sc = zro, zro, zro
+        sum1 = su[nn]
+        kan = (lastp - nn) // 2
+        kt = nn
+        k = nn
+
+        for j_loc in range(1, kan + 1):
+            k = nn + 2 * j_loc
+            kt = k
+            a_s = s[k - 1] - s[k - 2]
+            b_s = s[k] - s[k - 1]
+            c_s = a_s + b_s
+
+            if abs(a_s) < 1e-30 or abs(b_s) < 1e-30:
+                continue
+
+            s1 = (two - b_s / a_s) * c_s / six
+            s3 = (two - a_s / b_s) * c_s / six
+            s2 = c_s - s1 - s3
+            add = s1 * fs[k - 2] + s2 * fs[k - 1] + s3 * fs[k]
+            sum1 = add + sum1
+
+            if line == 1:
+                continue
+
+            delta = one - sum1
+            if delta < 0:
+                # Mass exceeded — interpolate wall point
+                s2_r = b_s * (two + c_s / a_s) / six
+                s3_r = b_s * (two + a_s / c_s) / six
+                s1_r = b_s - s2_r - s3_r
+                bdd = s1_r * fs[k - 2] + s2_r * fs[k - 1] + s3_r * fs[k]
+
+                if bdd + delta < 0:
+                    dn = two * (add + delta) / a_s
+                    disc = fs[k - 2]**2 + (fs[k - 1] - fs[k - 2]) * dn
+                    sb = dn / (fs[k - 2] + np.sqrt(max(disc, 0)))
+                    sa = one - sb
+                    sc = zro
+                elif bdd + delta == 0:
+                    sa, sb, sc = zro, one, zro
+                else:
+                    dn = two * delta / b_s
+                    disc = fs[k]**2 + (fs[k] - fs[k - 1]) * dn
+                    sc = one + dn / (fs[k] + np.sqrt(max(disc, 0)))
+                    sb = one - sc
+                    sa = zro
+
+                for jj in range(5):
+                    wall[jj, line] = (b[jj, kt - 2] * sa
+                                      + b[jj, kt - 1] * sb
+                                      + b[jj, kt] * sc)
+                last = kt
+                return None
+
+            elif delta == 0:
+                sa, sb, sc = zro, zro, one
+                for jj in range(5):
+                    wall[jj, line] = b[jj, kt] * sc
+                last = kt
+                return None
+
+        # End of Simpson loop
+        if line == 1:
+            return sum1
+
+        # Extrapolate
+        if k + 1 <= lastp:
+            b_s_ext = s[k + 1] - s[k]
+            kt = k + 1
+        else:
+            b_s_ext = s[k] - s[k - 1]
+            kt = k
+        delta = one - sum1
+        if abs(b_s_ext) > 1e-30 and abs(delta) > 1e-30:
+            dn = two * delta / b_s_ext
+            disc = fs[kt]**2 + (fs[kt] - fs[kt - 1]) * dn
+            if disc > 0:
+                sc = dn / (fs[kt] + np.sqrt(disc))
+            else:
+                sc = half
+            sb = one - sc
+            sa = zro
+        else:
+            sa, sb, sc = zro, zro, one
+
+        for jj in range(5):
+            wall[jj, line] = (b[jj, kt - 2] * sa
+                              + b[jj, kt - 1] * sb
+                              + b[jj, kt] * sc)
+        last = kt
+        return None
+
+    # --- First characteristic (line=1) ---
+    total_mass = _mass_integrate_and_find_wall_ds()
+
+    last = m
+    line = 2
+
+    # --- Axis march: lines 2..n ---
+    # For downstream: b[:,1] = axis[:,line], ofeld(b, a, ...) reversed
+    while True:
+        for j in range(5):
+            b[j, 1] = axis[j, line]
+
+        # Downstream: ofeld(b_pt, a_pt) — reversed from upstream
+        for j_f in range(1, last + 1):
+            c_pt, conv_flag = ofeld(b[:, j_f], a[:, j_f], gamma=gamma, ie=ie)
+            if not conv_flag:
+                last = j_f
+                break
+            b[:, j_f + 1] = c_pt
+
+        _mass_integrate_and_find_wall_ds()
+
+        if n - line <= 0:
+            break
+        else:
+            line = line + 1
+            for k in range(5):
+                for l in range(1, MAXPTS + 1):
+                    a[k, l] = b[k, l]
+
+    # --- Exit characteristic matching: lines n+1..nl-1 ---
+    while line < nl:
+        nn = nn + 1
+        line = line + 1
+
+        for k in range(5):
+            for l in range(1, MAXPTS + 1):
+                a[k, l] = b[k, l]
+        for k in range(5):
+            b[k, :] = 0.0
+            for l in range(1, np_pts + 1):
+                b[k, l] = fclast[k, l]
+
+        for j_f in range(nn, last + 1):
+            c_pt, conv_flag = ofeld(b[:, j_f], a[:, j_f], gamma=gamma, ie=ie)
+            if not conv_flag:
+                last = j_f
+                break
+            b[:, j_f + 1] = c_pt
+
+        _mass_integrate_and_find_wall_ds()
+
+        if line >= nl - 1:
+            break
+
+    # --- Final wall point = exit ---
+    # wall[:, nl] = fclast[:, np_pts]
+    for j in range(5):
+        wall[j, line + 1] = fclast[j, np_pts]
+
+    # --- Build output arrays ---
+    # For downstream, wall points go from inflection (line=1) to exit (line=nl)
+    # No slope integration needed — wall y comes directly from march
+    n_wall = line + 1  # total wall points including exit
+
+    wax = np.zeros(n_wall)
+    way = np.zeros(n_wall)
+    wmn = np.zeros(n_wall)
+    wan = np.zeros(n_wall)
+    waltan = np.zeros(n_wall)
+
+    for l in range(n_wall):
+        wax[l] = wall[0, l + 1]
+        way[l] = wall[1, l + 1]
+        wmn[l] = wall[2, l + 1]
+        wan[l] = conv * wall[4, l + 1]
+        waltan[l] = np.tan(wall[4, l + 1])
+
+    # Second derivatives
+    secd = parabolic_derivative(wax, waltan)
+    secd[0] = zro
+    secd[-1] = zro
+
+    return {
+        'wax': wax,
+        'way': way,
+        'wmn': wmn,
+        'wan': wan,
+        'waltan': waltan,
+        'secd': secd,
+        'mass': total_mass,
+        'n_wall': n_wall,
     }

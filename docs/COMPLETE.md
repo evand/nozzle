@@ -4,6 +4,14 @@ Move items here from TODO.md when done. Most recent at top.
 
 ---
 
+## Sivells downstream contour
+`sivells_axial_downstream()` and `sivells_perfc_downstream()` — downstream axis
+polynomial + MOC march with reversed ofeld and mass integration. Integrated into
+`sivells_nozzle(downstream=True)` with linear bridge at inflection gap.
+Config/CLI support for downstream, ip, md, nd, nf params. 51 downstream tests,
+352 total, all passing. Validated against CONTUR Mach 4 planar output.
+*Completed 2026-02-08*
+
 ## Sivells axisymmetric validation
 28 tests comparing sivells_axial and sivells_perfc with ie=1 against CONTUR F90
 axisymmetric Mach 4 output. Matches to x~1e-8, M~1e-8, angle~0.02 deg.

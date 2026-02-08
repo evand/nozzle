@@ -6,12 +6,6 @@ Tasks that need more than a couple lines of context get a folder under
 
 ---
 
-## Sivells
-
-### Sivells downstream contour
-Port ip!=0 branch of perfc.f for nozzles extending past the inflection point.
-Support both upstream-only (current) and full throat-to-exit contours.
-
 ## Analysis
 
 ### TIC performance at truncated exit

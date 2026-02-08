@@ -224,6 +224,11 @@ def build_nozzle_spec(cfg):
         spec['nx'] = int(cfg.get('nx', 13))
         spec['ix'] = int(cfg.get('ix', 0))
         spec['ie'] = int(cfg.get('ie', 0))
+        spec['downstream'] = bool(cfg.get('downstream', False))
+        spec['ip'] = int(cfg.get('ip', 10))
+        spec['md'] = int(cfg['md']) if 'md' in cfg else None
+        spec['nd'] = int(cfg['nd']) if 'nd' in cfg else None
+        spec['nf'] = int(cfg['nf']) if 'nf' in cfg else None
 
     elif ntype == 'custom':
         spec['contour_file'] = cfg.get('contour_file', '')

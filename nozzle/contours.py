@@ -335,12 +335,14 @@ def minimum_length_nozzle(M_exit, n_chars=50, gamma=1.4):
 
 
 def sivells_nozzle(M_exit, gamma=1.4, rc=1.5, inflection_angle_deg=None,
-                   n_char=41, n_axis=21, nx=13, ix=0, ie=0):
-    """Generate an upstream nozzle contour using Sivells' CONTUR method.
+                   n_char=41, n_axis=21, nx=13, ix=0, ie=0,
+                   downstream=False, ip=10, md=None, nd=None, nf=None):
+    """Generate a nozzle contour using Sivells' CONTUR method.
 
     Uses the Method of Characteristics with mass flow integration to compute
-    the wall contour from the throat to the inflection point. This is the
-    upstream portion only; the downstream contour is a separate computation.
+    the wall contour. With downstream=False (default), only the upstream
+    portion (throat to inflection) is computed. With downstream=True, the
+    full contour from throat to exit is produced.
 
     Parameters
     ----------
@@ -363,6 +365,16 @@ def sivells_nozzle(M_exit, gamma=1.4, rc=1.5, inflection_angle_deg=None,
         Distribution type: 0 for 3rd-degree (default), nonzero for 4th-degree.
     ie : int
         0 for planar (default), 1 for axisymmetric.
+    downstream : bool
+        If True, compute the full contour (throat to exit). Default False.
+    ip : int
+        Downstream polynomial interpolation parameter (default 10).
+    md : int or None
+        Number of downstream characteristics. If None, defaults to n_char.
+    nd : int or None
+        Number of downstream axis points. If None, auto-computed.
+    nf : int or None
+        Number of exit characteristic points (negative). If None, auto-computed.
 
     Returns
     -------
@@ -370,11 +382,6 @@ def sivells_nozzle(M_exit, gamma=1.4, rc=1.5, inflection_angle_deg=None,
         Axial coordinates (throat at x=0), normalized by throat radius.
     y : ndarray
         Radial coordinates, normalized by throat radius (y=1 at throat).
-
-    Notes
-    -----
-    Only computes the **upstream** contour (throat to inflection point).
-    Port of Sivells' CONTUR program (AEDC-TR-78-63, 1978).
     """
     from nozzle.sivells import sivells_axial, sivells_perfc
 
@@ -405,8 +412,55 @@ def sivells_nozzle(M_exit, gamma=1.4, rc=1.5, inflection_angle_deg=None,
     wax = perfc['wax']  # wall x in CONTUR coords
     way = perfc['way']  # wall y in CONTUR coords
 
-    x = (wax - xo) / yo
-    y = way / yo
+    x_up = (wax - xo) / yo
+    y_up = way / yo
+
+    if not downstream:
+        return x_up, y_up
+
+    # --- Downstream contour ---
+    from nozzle.sivells import sivells_axial_downstream, sivells_perfc_downstream
+
+    ds_axial = sivells_axial_downstream(
+        axial, gamma=gamma, ie=ie, ip=ip, md=md, nd=nd, nf=nf,
+    )
+
+    ds_perfc = sivells_perfc_downstream(
+        axial, ds_axial, gamma=gamma, ie=ie,
+    )
+
+    # Convert downstream wall to r*-normalized
+    ds_wax = ds_perfc['wax']
+    ds_way = ds_perfc['way']
+    x_dn = (ds_wax - xo) / yo
+    y_dn = ds_way / yo
+
+    # Bridge the gap between upstream and downstream at inflection.
+    # Both endpoints have the same wall angle (inflection angle), so
+    # a straight-line interpolation is appropriate for the transition.
+    x_gap_start = x_up[-1]
+    y_gap_start = y_up[-1]
+    x_gap_end = x_dn[0]
+    y_gap_end = y_dn[0]
+    gap = x_gap_end - x_gap_start
+
+    if gap > 0.01:
+        # Interpolate with ~same spacing as upstream wall
+        dx_up = np.mean(np.diff(x_up[-5:])) if len(x_up) > 5 else 0.1
+        n_bridge = max(5, int(gap / dx_up))
+        # Exclude endpoints (already in upstream/downstream)
+        t = np.linspace(0, 1, n_bridge + 2)[1:-1]
+        x_bridge = x_gap_start + t * gap
+        y_bridge = y_gap_start + t * (y_gap_end - y_gap_start)
+        x = np.concatenate([x_up, x_bridge, x_dn])
+        y = np.concatenate([y_up, y_bridge, y_dn])
+    else:
+        # No gap or overlap — just skip duplicate
+        if gap > -0.01:
+            x_dn = x_dn[1:]
+            y_dn = y_dn[1:]
+        x = np.concatenate([x_up, x_dn])
+        y = np.concatenate([y_up, y_dn])
 
     return x, y
 
