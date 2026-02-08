@@ -4,6 +4,23 @@ Move items here from TODO.md when done. Most recent at top.
 
 ---
 
+## Sivells axisymmetric validation
+28 tests comparing sivells_axial and sivells_perfc with ie=1 against CONTUR F90
+axisymmetric Mach 4 output. Matches to x~1e-8, M~1e-8, angle~0.02 deg.
+*Completed 2026-02-07*
+
+## Web viewer overhaul
+Toggle-based UI for all 5 nozzle types (conical, rao, mln, tic, sivells) with
+type-specific parameters. CSV per-type and YAML config export. Sivells module
+added to Pyodide build. Dynamic computation based on enabled types.
+*Completed 2026-02-07*
+
+## Sivells CLI integration
+`sivells_nozzle()` wrapper in contours.py, `type: sivells` in config/CLI.
+Auto-defaults for inflection angle and bmach. Example config and integration
+tests. Performance via quasi_1d_performance.
+*Completed 2026-02-07*
+
 ## Structured console output
 Aligned summary table with Cf, % Ideal, and type-specific notes printed after
 all configs run. Replaces ad-hoc per-config print statements.
