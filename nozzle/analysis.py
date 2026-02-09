@@ -98,6 +98,74 @@ def conical_performance(half_angle_deg, area_ratio, gamma=1.4):
     }
 
 
+def exit_plane_integral(y, M, theta, gamma=1.4):
+    """Compute Cf by integrating momentum+pressure over an exit plane.
+
+    Cf = 2 * integral_0^y_wall [(gamma*M^2 + 1) * (P/P0) * cos(theta)] * y * dy
+
+    For uniform M and theta=0, returns thrust_coefficient_ideal(M).
+    """
+    p = pressure_ratio(M, gamma)
+    integrand = (gamma * M**2 + 1) * p * np.cos(theta) * y
+    _trapz = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
+    return float(2 * _trapz(integrand, y))
+
+
+def synthesize_exit_plane(x_wall, y_wall, gamma=1.4, x_exit=None, n_points=200):
+    """Construct exit plane arrays from wall contour (quasi-1D model).
+
+    Builds (y, M, theta) arrays at a given x-station:
+    - M: uniform at mach_from_area_ratio(y_exit^2, gamma)
+    - theta(y): linear from 0 (axis) to theta_wall (wall)
+
+    Parameters
+    ----------
+    x_wall, y_wall : ndarray
+        Wall contour coordinates (r*-normalized, y>=1).
+    gamma : float
+    x_exit : float or None
+        Station at which to evaluate. Defaults to x_wall[-1].
+    n_points : int
+        Number of points across the exit plane.
+
+    Returns
+    -------
+    y, M, theta : ndarray
+        Arrays suitable for exit_plane_integral().
+    """
+    x_wall = np.asarray(x_wall, dtype=float)
+    y_wall = np.asarray(y_wall, dtype=float)
+
+    if x_exit is None:
+        x_exit = x_wall[-1]
+        y_exit = y_wall[-1]
+        # Wall slope from last two points
+        if len(x_wall) >= 2:
+            dx = x_wall[-1] - x_wall[-2]
+            dy = y_wall[-1] - y_wall[-2]
+            theta_wall = np.arctan2(dy, dx) if dx > 0 else 0.0
+        else:
+            theta_wall = 0.0
+    else:
+        # Interpolate wall radius and slope at x_exit
+        y_exit = float(np.interp(x_exit, x_wall, y_wall))
+        # Slope by finite difference from interpolation neighbors
+        idx = np.searchsorted(x_wall, x_exit, side='right')
+        idx = min(max(idx, 1), len(x_wall) - 1)
+        dx = x_wall[idx] - x_wall[idx - 1]
+        dy = y_wall[idx] - y_wall[idx - 1]
+        theta_wall = np.arctan2(dy, dx) if dx > 0 else 0.0
+
+    area_ratio = y_exit ** 2
+    M_exit = mach_from_area_ratio(area_ratio, gamma=gamma)
+
+    y = np.linspace(0, y_exit, n_points)
+    M = np.full_like(y, M_exit)
+    theta = theta_wall * (y / y_exit)  # linear: 0 at axis, theta_wall at wall
+
+    return y, M, theta
+
+
 def moc_performance(mesh, gamma=1.4):
     """Compute performance metrics from a MOC characteristic mesh.
 
@@ -179,24 +247,7 @@ def moc_performance(mesh, gamma=1.4):
     M_mean = np.sum(M_exit * areas) / total_area
 
     # Thrust coefficient from exit plane integration
-    # Cf = (1/P0·A*) · integral[ (ρ·V²·cos(θ) + P·cos(θ)) · 2πy·dy ]
-    # Using isentropic relations:
-    # ρV² = γ·P·M², so the integrand becomes P·(γM²+1)·cos(θ)
-    # P/P0 = pressure_ratio(M)
-    # All normalized by P0·A* where A* = π·r*² = π (since r*=1)
-
-    Cf_integrand = np.zeros_like(y_exit)
-    for i in range(len(y_exit)):
-        M = M_exit[i]
-        theta = theta_exit[i]
-        p_ratio = pressure_ratio(M, gamma)
-        # Momentum + pressure: (γM² + 1)·(P/P0)·cos(θ)
-        Cf_integrand[i] = (gamma * M**2 + 1) * p_ratio * np.cos(theta)
-
-    # Integrate over exit plane: Cf = (2/A*) · integral[ f(y) · y · dy ]
-    # A* = 1 (normalized), so Cf = 2 · integral[ f · y · dy ]
-    _trapz = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
-    Cf = 2 * _trapz(Cf_integrand * y_exit, y_exit)
+    Cf = exit_plane_integral(y_exit, M_exit, theta_exit, gamma)
 
     # 1D ideal Cf at the mean exit Mach
     Cf_ideal = thrust_coefficient_ideal(max(M_mean, 1.01), gamma)
@@ -231,28 +282,19 @@ def quasi_1d_performance(x_wall, y_wall, gamma=1.4):
     -------
     dict with: Cf, Cf_ideal, efficiency, M_exit, area_ratio
     """
-    area_ratio = float(y_wall[-1] ** 2)
-    M_exit = mach_from_area_ratio(area_ratio, gamma=gamma)
-    Cf = thrust_coefficient_ideal(M_exit, gamma)
-    Cf_ideal = Cf  # quasi-1D is inherently ideal (no divergence loss)
+    y_ep, M_ep, theta_ep = synthesize_exit_plane(x_wall, y_wall, gamma)
+    Cf = exit_plane_integral(y_ep, M_ep, theta_ep, gamma)
 
-    # Estimate divergence loss from wall angle at exit
-    # theta_exit ≈ atan(dy/dx) at the end of the contour
-    if len(x_wall) >= 2:
-        dx = x_wall[-1] - x_wall[-2]
-        dy = y_wall[-1] - y_wall[-2]
-        theta_exit = np.arctan2(dy, dx) if dx > 0 else 0.0
-        # Apply divergence factor lambda = (1 + cos(theta_e))/2
-        lam = (1 + np.cos(theta_exit)) / 2
-        Cf = Cf_ideal * lam
-    else:
-        theta_exit = 0.0
-        lam = 1.0
+    M_exit = float(M_ep[0])
+    Cf_ideal = thrust_coefficient_ideal(M_exit, gamma)
+    theta_exit = float(theta_ep[-1])
+    lam = Cf / Cf_ideal if Cf_ideal > 0 else 1.0
+    area_ratio = float(y_wall[-1] ** 2)
 
     return {
         'Cf': Cf,
         'Cf_ideal': Cf_ideal,
-        'efficiency': Cf / Cf_ideal if Cf_ideal > 0 else 1.0,
+        'efficiency': lam,
         'M_exit': M_exit,
         'area_ratio': area_ratio,
         'lambda': lam,

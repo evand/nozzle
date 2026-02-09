@@ -3,7 +3,10 @@
 import numpy as np
 import pytest
 from nozzle.contours import truncated_ideal_contour, minimum_length_nozzle
-from nozzle.analysis import moc_performance, quasi_1d_performance
+from nozzle.analysis import (
+    moc_performance, quasi_1d_performance,
+    exit_plane_integral, synthesize_exit_plane,
+)
 
 
 class TestTIC:
@@ -77,3 +80,13 @@ class TestTICPerformance:
         perf_tic = quasi_1d_performance(x_tic, y_tic)
 
         assert perf_tic['Cf'] == pytest.approx(perf_mln['Cf'], rel=0.01)
+
+    def test_tic_quasi1d_matches_direct_integral(self):
+        """quasi_1d_performance and synthesize+integral should agree exactly."""
+        x, y, _ = truncated_ideal_contour(2.0, 0.8, n_chars=15)
+        perf = quasi_1d_performance(x, y)
+
+        y_ep, M_ep, theta_ep = synthesize_exit_plane(x, y)
+        Cf_direct = exit_plane_integral(y_ep, M_ep, theta_ep)
+
+        assert Cf_direct == pytest.approx(perf['Cf'], rel=1e-10)

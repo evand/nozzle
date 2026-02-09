@@ -334,6 +334,122 @@ def minimum_length_nozzle(M_exit, n_chars=50, gamma=1.4):
     return x_wall, y_wall, mesh
 
 
+def length_constrained_nozzle(M_exit, target_length, n_chars=30, gamma=1.4,
+                              tol=1e-3):
+    """Find optimal nozzle for a given exit Mach and length budget.
+
+    Bisects over M_design >= M_exit: designs MLN(M_design), truncates at
+    target_length, checks if exit area ratio matches area_mach_ratio(M_exit).
+
+    Parameters
+    ----------
+    M_exit : float
+        Required exit Mach number (defines target area ratio).
+    target_length : float
+        Maximum nozzle length in r*-normalized units.
+    n_chars : int
+        MOC characteristic count for MLN generation.
+    gamma : float
+        Ratio of specific heats.
+    tol : float
+        Bisection tolerance on area ratio relative error.
+
+    Returns
+    -------
+    x_wall, y_wall : ndarray
+        Truncated wall contour.
+    mesh : CharMesh
+        MLN mesh at the converged M_design.
+    info : dict
+        M_design, truncation_fraction, area_ratio, iterations.
+    """
+    target_ar = area_mach_ratio(M_exit, gamma)
+
+    # Try the full MLN at M_exit first — if it fits, it's already optimal
+    x_full, y_full, mesh_full = minimum_length_nozzle(M_exit, n_chars, gamma)
+    L_full = x_full[-1] - x_full[0]
+
+    if L_full <= target_length:
+        info = {
+            'M_design': M_exit,
+            'truncation_fraction': 1.0,
+            'area_ratio': target_ar,
+            'iterations': 0,
+        }
+        return x_full, y_full, mesh_full, info
+
+    # Bisect: find M_design such that y(target_length)^2 == target AR
+    M_low = M_exit
+    # Find M_high: scan upward until MLN is long enough that y at target_length
+    # gives area ratio >= target_ar
+    M_high = M_exit * 1.5
+    for _ in range(20):
+        x_h, y_h, _ = minimum_length_nozzle(M_high, n_chars, gamma)
+        if x_h[-1] - x_h[0] >= target_length:
+            y_at_L = np.interp(x_h[0] + target_length, x_h, y_h)
+            if y_at_L ** 2 >= target_ar:
+                break
+        M_high *= 1.5
+    else:
+        import warnings
+        warnings.warn(
+            f"Could not bracket M_design for target_length={target_length}. "
+            f"Returning best attempt."
+        )
+
+    # Bisection loop
+    iterations = 0
+    max_iter = 50
+    while iterations < max_iter:
+        M_mid = (M_low + M_high) / 2
+        x_mid, y_mid, mesh_mid = minimum_length_nozzle(M_mid, n_chars, gamma)
+        L_mid = x_mid[-1] - x_mid[0]
+
+        if L_mid < target_length:
+            # MLN fits entirely — M_mid is too low (not enough over-design)
+            M_low = M_mid
+            iterations += 1
+            continue
+
+        y_at_L = np.interp(x_mid[0] + target_length, x_mid, y_mid)
+        ar_at_L = y_at_L ** 2
+
+        rel_err = (ar_at_L - target_ar) / target_ar
+        iterations += 1
+
+        if abs(rel_err) < tol:
+            break
+        elif ar_at_L < target_ar:
+            # Not enough area — need higher M_design
+            M_low = M_mid
+        else:
+            # Too much area — need lower M_design
+            M_high = M_mid
+
+    # Truncate the converged contour at target_length
+    x_trunc_limit = x_mid[0] + target_length
+    mask = x_mid <= x_trunc_limit
+    x_wall = x_mid[mask]
+    y_wall = y_mid[mask]
+
+    # Interpolate exact endpoint
+    if x_trunc_limit < x_mid[-1]:
+        y_trunc = np.interp(x_trunc_limit, x_mid, y_mid)
+        x_wall = np.append(x_wall, x_trunc_limit)
+        y_wall = np.append(y_wall, y_trunc)
+
+    trunc_frac = target_length / L_mid if L_mid > 0 else 1.0
+
+    info = {
+        'M_design': M_mid,
+        'truncation_fraction': trunc_frac,
+        'area_ratio': y_wall[-1] ** 2,
+        'iterations': iterations,
+    }
+
+    return x_wall, y_wall, mesh_mid, info
+
+
 def sivells_nozzle(M_exit, gamma=1.4, rc=1.5, inflection_angle_deg=None,
                    n_char=41, n_axis=21, nx=13, ix=0, ie=0,
                    downstream=False, ip=10, md=None, nd=None, nf=None):

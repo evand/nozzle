@@ -298,6 +298,20 @@
                     <span style="color:#888; font-size:0.85rem;">%</span>
                 </div>
             </div>
+            <div class="type-card disabled" style="--type-color: #a8e6cf;">
+                <input type="checkbox" id="chk-lc">
+                <span class="color-swatch" style="background: #a8e6cf;"></span>
+                <span class="type-label">Length-Constrained</span>
+                <div class="type-params" id="params-lc">
+                    <label>Target length (r*):
+                        <input type="number" id="lc-target-length" value="2.0" min="0.5" max="50" step="0.1">
+                    </label>
+                    <label>Characteristics:
+                        <input type="number" id="n-chars-lc" value="15" min="5" max="100" step="5">
+                    </label>
+                    <span class="type-note">Optimal truncated MLN for length budget</span>
+                </div>
+            </div>
             <div class="type-card disabled" style="--type-color: #ff9f43;">
                 <input type="checkbox" id="chk-sivells">
                 <span class="color-swatch" style="background: #ff9f43;"></span>
@@ -387,12 +401,13 @@
             rao: '#4ecdc4',
             mln: '#ffd93d',
             tic: '#bb86fc',
+            lc: '#a8e6cf',
             sivells: '#ff9f43',
             custom: '#cccccc',
         };
 
         // Checkbox toggle: enable/disable card styling
-        for (const type of ['conical', 'rao', 'mln', 'tic', 'sivells', 'custom']) {
+        for (const type of ['conical', 'rao', 'mln', 'tic', 'lc', 'sivells', 'custom']) {
             const chk = document.getElementById('chk-' + type);
             const card = chk.closest('.type-card');
             chk.addEventListener('change', () => {
@@ -407,7 +422,7 @@
 
         function getEnabledTypes() {
             const types = [];
-            for (const t of ['conical', 'rao', 'mln', 'tic', 'sivells', 'custom']) {
+            for (const t of ['conical', 'rao', 'mln', 'tic', 'lc', 'sivells', 'custom']) {
                 if (document.getElementById('chk-' + t).checked) types.push(t);
             }
             return types;
@@ -581,6 +596,8 @@ def styled_axes(fig, ax):
             const sivellsThetaRaw = document.getElementById('sivells-theta').value.trim();
             const sivellsTheta = (sivellsThetaRaw === 'auto' || sivellsThetaRaw === '')
                 ? 'None' : parseFloat(sivellsThetaRaw);
+            const lcTargetLength = parseFloat(document.getElementById('lc-target-length').value);
+            const nCharsLc = parseInt(document.getElementById('n-chars-lc').value);
             const throatRadiusRaw = document.getElementById('throat-radius').value.trim();
             const throatRadiusMM = (throatRadiusRaw === '') ? null : parseFloat(throatRadiusRaw);
 
@@ -613,7 +630,7 @@ def styled_axes(fig, ax):
             let pyCode = `
 import json
 from nozzle.gas import area_mach_ratio, thrust_coefficient_ideal
-from nozzle.contours import conical_nozzle, rao_parabolic_nozzle, minimum_length_nozzle, truncated_ideal_contour, sivells_nozzle
+from nozzle.contours import conical_nozzle, rao_parabolic_nozzle, minimum_length_nozzle, truncated_ideal_contour, sivells_nozzle, length_constrained_nozzle
 from nozzle.analysis import conical_performance, rao_performance, moc_performance, quasi_1d_performance
 
 M_exit   = ${mExit}
@@ -721,6 +738,40 @@ if exit_data is None:
     if len(y_exit_tic) > 1:
         exit_data = (y_exit_tic.tolist(), M_dist_tic.tolist(),
                      np.degrees(theta_dist_tic).tolist(), f'TIC {int(trunc_frac*100)}%')
+`;
+            }
+            if (enabledTypes.includes('lc')) {
+                pyCode += `
+# --- Length-Constrained ---
+lc_target_length = ${lcTargetLength}
+n_chars_lc = ${nCharsLc}
+try:
+    x_lc, y_lc, mesh_lc, info_lc = length_constrained_nozzle(
+        M_exit, lc_target_length, n_chars_lc, gamma)
+    perf_lc = quasi_1d_performance(x_lc, y_lc, gamma)
+    csv_lc = "# length-constrained nozzle contour\\n# x/r*,y/r*\\n"
+    for xi, yi in zip(x_lc, y_lc):
+        csv_lc += f"{xi:.8f},{yi:.8f}\\n"
+    trunc_pct = info_lc['truncation_fraction'] * 100
+    nozzles.append({
+        'name': f'LC (L={lc_target_length})',
+        'x': x_lc.tolist(), 'y': y_lc.tolist(),
+        'color': '${TYPE_COLORS.lc}',
+        'perf': {'Cf': round(perf_lc['Cf'], 4),
+                 'pct': round(perf_lc['Cf']/Cf_ideal*100, 1),
+                 'note': f"M_d={info_lc['M_design']:.3f} trunc={trunc_pct:.0f}% \\u03bb={perf_lc['lambda']:.4f}"},
+        'csv': csv_lc,
+        'csv_name': 'length_constrained',
+    })
+except Exception as e:
+    nozzles.append({
+        'name': f'LC (L={lc_target_length})',
+        'x': [], 'y': [],
+        'color': '${TYPE_COLORS.lc}',
+        'perf': {'Cf': 0, 'pct': 0, 'note': f"Error: {e}"},
+        'csv': '',
+        'csv_name': 'length_constrained',
+    })
 `;
             }
             if (enabledTypes.includes('sivells')) {
@@ -1077,6 +1128,14 @@ json.dumps(result)
                 yaml += `    M_exit: ${mExit}\n`;
                 yaml += `    n_chars: ${nCharsTic}\n`;
                 yaml += `    truncation_fraction: ${truncFrac}\n\n`;
+            }
+            if (enabledTypes.includes('lc')) {
+                yaml += `  length_constrained:\n`;
+                yaml += `    type: length_constrained\n`;
+                yaml += `    gamma: ${gamma}\n`;
+                yaml += `    M_exit: ${mExit}\n`;
+                yaml += `    n_chars: ${nCharsLc}\n`;
+                yaml += `    target_length: ${lcTargetLength}\n\n`;
             }
             if (enabledTypes.includes('sivells')) {
                 yaml += `  sivells:\n`;

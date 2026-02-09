@@ -18,7 +18,7 @@ from nozzle.config import load_config, build_nozzle_spec
 from nozzle.contours import (
     conical_nozzle, rao_parabolic_nozzle, minimum_length_nozzle,
     truncated_ideal_contour, conical_divergence_loss, load_contour_csv,
-    sivells_nozzle, convergent_section,
+    sivells_nozzle, convergent_section, length_constrained_nozzle,
 )
 from nozzle.analysis import (
     conical_performance, rao_performance, moc_performance,
@@ -182,6 +182,10 @@ def _print_summary_table(results):
             note = f"M_mean={r.get('M_mean', 0):.3f}"
         elif rtype == 'tic':
             note = f"lambda={r.get('lambda', 0):.4f}"
+        elif rtype == 'length_constrained':
+            md = r.get('M_design', 0)
+            tf = r.get('truncation_fraction', 0)
+            note = f"M_design={md:.3f} trunc={tf*100:.0f}%"
         elif rtype == 'sivells':
             ds = r.get('downstream', False)
             scope = "full" if ds else "upstream only"
@@ -291,6 +295,25 @@ def _run_single(spec, name, output_dir, outputs):
         result['mesh'] = mesh
         print(f"  TIC {trunc_frac*100:.0f}% M={M_exit:.1f}: "
               f"θ_e={perf['theta_exit_deg']:.1f}°, "
+              f"Cf={perf['Cf']:.4f} (λ={perf['lambda']:.4f})")
+
+    elif ntype == 'length_constrained':
+        M_exit = spec['M_exit']
+        n_chars = spec.get('n_chars', 30)
+        target_length = spec['target_length']
+        x_wall, y_wall, mesh, info = length_constrained_nozzle(
+            M_exit, target_length, n_chars, gamma)
+        perf = quasi_1d_performance(x_wall, y_wall, gamma)
+        result.update(perf)
+        result['x_wall'] = x_wall
+        result['y_wall'] = y_wall
+        result['mesh'] = mesh
+        result['M_design'] = info['M_design']
+        result['truncation_fraction'] = info['truncation_fraction']
+        trunc_pct = info['truncation_fraction'] * 100
+        print(f"  Length-constrained M={M_exit:.1f} L={target_length:.2f}: "
+              f"M_design={info['M_design']:.3f}, "
+              f"trunc={trunc_pct:.0f}%, "
               f"Cf={perf['Cf']:.4f} (λ={perf['lambda']:.4f})")
 
     elif ntype == 'sivells':

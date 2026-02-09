@@ -152,7 +152,7 @@ def build_nozzle_spec(cfg):
     Returns
     -------
     dict with standardized keys:
-        type : str — 'conical', 'rao', 'mln', 'tic', 'sivells', 'custom'
+        type : str — 'conical', 'rao', 'mln', 'tic', 'length_constrained', 'sivells', 'custom'
         gamma : float
         area_ratio : float
         throat_radius_m : float or None — physical throat radius in meters
@@ -218,11 +218,18 @@ def build_nozzle_spec(cfg):
     elif ntype == 'rao':
         spec['bell_fraction'] = float(cfg.get('bell_fraction', 0.8))
 
-    elif ntype in ('mln', 'tic'):
+    elif ntype in ('mln', 'tic', 'length_constrained'):
         spec['n_chars'] = int(cfg.get('n_chars', 30))
         if ntype == 'tic':
             spec['truncation_fraction'] = float(
                 cfg.get('truncation_fraction', 0.8))
+        if ntype == 'length_constrained':
+            if 'target_length' not in cfg:
+                raise ValueError(
+                    "length_constrained type requires 'target_length' "
+                    "(in r*-normalized units)"
+                )
+            spec['target_length'] = float(cfg['target_length'])
 
     elif ntype == 'sivells':
         spec['rc'] = float(cfg.get('rc', 1.5))
