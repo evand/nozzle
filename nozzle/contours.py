@@ -535,3 +535,115 @@ def load_contour_csv(path, r_throat=None, x_throat=None):
             y = y / y_min
 
     return x, y
+
+
+def convergent_section(contraction_ratio=3.0, convergent_half_angle_deg=30.0,
+                       rc_upstream=1.5, rc_downstream=0.382, n_points=100):
+    """Generate a convergent (subsonic) nozzle section.
+
+    Constructs a wall contour from the chamber to the throat, using a
+    standard four-segment geometry: chamber cylinder, upstream arc,
+    straight converging line, and downstream arc.
+
+    All coordinates are normalized by throat radius (r*). The throat is
+    at (0, 1) and the contour extends to negative x values.
+
+    Parameters
+    ----------
+    contraction_ratio : float
+        Chamber-to-throat area ratio Ac/A* (default 3.0).
+    convergent_half_angle_deg : float
+        Half-angle of the straight converging section in degrees (default 30).
+    rc_upstream : float
+        Upstream circular arc radius / throat radius (default 1.5).
+    rc_downstream : float
+        Downstream circular arc radius / throat radius (default 0.382).
+    n_points : int
+        Total number of points in the output contour (default 100).
+
+    Returns
+    -------
+    x : ndarray
+        Axial coordinates (x <= 0), normalized by throat radius.
+    y : ndarray
+        Radial coordinates, normalized by throat radius. y[-1] = 1.0.
+
+    Raises
+    ------
+    ValueError
+        If the geometry is invalid (arcs overlap, chamber too small, etc.).
+    """
+    alpha = np.radians(convergent_half_angle_deg)
+    y_chamber = np.sqrt(contraction_ratio)  # Ac/A* = (rc/r*)^2
+    R_d = rc_downstream
+    R_u = rc_upstream
+
+    if abs(np.tan(alpha)) < 1e-12:
+        raise ValueError("Convergent half-angle too small")
+
+    # Auto-scale arc radii to fit the geometry.
+    # We iteratively reduce radii until the straight line has positive length.
+    for _ in range(20):
+        y_d_center = 1.0 + R_d
+        x_d_junction = R_d * np.cos(-np.pi / 2 - alpha)
+        y_d_junction = y_d_center + R_d * np.sin(-np.pi / 2 - alpha)
+
+        y_u_center = y_chamber - R_u
+        y_u_tangent = y_u_center + R_u * np.cos(alpha)
+        x_u_tangent = x_d_junction - (y_u_tangent - y_d_junction) / np.tan(alpha)
+        x_u_center = x_u_tangent + R_u * np.sin(alpha)
+
+        if x_u_center < x_d_junction - 0.01:
+            break
+        R_u *= 0.7
+        R_d *= 0.7
+    else:
+        raise ValueError(
+            f"Convergent geometry invalid: cannot fit arcs. "
+            f"Try a larger contraction ratio or smaller half-angle."
+        )
+
+    # --- Downstream arc (closest to throat) ---
+    x_d_center = 0.0
+    y_d_center = 1.0 + R_d
+    theta_d_start = -np.pi / 2 - alpha
+    theta_d_end = -np.pi / 2
+
+    x_d_junction = x_d_center + R_d * np.cos(theta_d_start)
+    y_d_junction = y_d_center + R_d * np.sin(theta_d_start)
+
+    # --- Upstream arc ---
+    y_u_center = y_chamber - R_u
+    y_u_tangent = y_u_center + R_u * np.cos(alpha)
+    x_u_tangent = x_d_junction - (y_u_tangent - y_d_junction) / np.tan(alpha)
+    x_u_center = x_u_tangent + R_u * np.sin(alpha)
+
+    # --- Build segments (upstream → downstream) ---
+    n_seg = max(n_points // 4, 5)
+
+    # 1. Chamber cylinder
+    chamber_length = min(0.5 * abs(x_u_center), 1.0)
+    if chamber_length < 0.01:
+        chamber_length = 0.5
+    x_cyl = np.linspace(x_u_center - chamber_length, x_u_center, n_seg)
+    y_cyl = np.full_like(x_cyl, y_chamber)
+
+    # 2. Upstream arc: from pi/2 (chamber) to pi/2 + alpha (line tangent)
+    theta_u = np.linspace(np.pi / 2, np.pi / 2 + alpha, n_seg)
+    x_uarc = x_u_center + R_u * np.cos(theta_u)
+    y_uarc = y_u_center + R_u * np.sin(theta_u)
+
+    # 3. Straight line
+    x_line = np.linspace(x_u_tangent, x_d_junction, n_seg)
+    y_line = np.linspace(y_u_tangent, y_d_junction, n_seg)
+
+    # 4. Downstream arc: from -pi/2 - alpha to -pi/2 (throat)
+    theta_d = np.linspace(theta_d_start, theta_d_end, n_seg)
+    x_darc = x_d_center + R_d * np.cos(theta_d)
+    y_darc = y_d_center + R_d * np.sin(theta_d)
+
+    # Concatenate (skip duplicate junction points)
+    x = np.concatenate([x_cyl, x_uarc[1:], x_line[1:], x_darc[1:]])
+    y = np.concatenate([y_cyl, y_uarc[1:], y_line[1:], y_darc[1:]])
+
+    return x, y

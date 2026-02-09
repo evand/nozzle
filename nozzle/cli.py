@@ -18,7 +18,7 @@ from nozzle.config import load_config, build_nozzle_spec
 from nozzle.contours import (
     conical_nozzle, rao_parabolic_nozzle, minimum_length_nozzle,
     truncated_ideal_contour, conical_divergence_loss, load_contour_csv,
-    sivells_nozzle,
+    sivells_nozzle, convergent_section,
 )
 from nozzle.analysis import (
     conical_performance, rao_performance, moc_performance,
@@ -345,6 +345,13 @@ def _run_single(spec, name, output_dir, outputs):
         print(f"  Unknown type: {ntype}")
         result['x_wall'] = None
         result['y_wall'] = None
+
+    # Prepend convergent section if configured
+    if spec.get('convergent') and result.get('x_wall') is not None:
+        conv_params = spec['convergent']
+        x_conv, y_conv = convergent_section(**conv_params)
+        result['x_wall'] = np.concatenate([x_conv[:-1], result['x_wall']])
+        result['y_wall'] = np.concatenate([y_conv[:-1], result['y_wall']])
 
     # Save individual contour plot
     if result.get('x_wall') is not None and 'contour' in outputs:

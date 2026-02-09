@@ -237,8 +237,16 @@
                 <input type="number" id="m-exit" value="2.0" min="1.1" max="10" step="0.1">
             </div>
             <div class="control-group">
+                <label>Expansion Ratio (A/A*)</label>
+                <input type="number" id="area-ratio" value="1.6875" min="1.01" max="500" step="0.1">
+            </div>
+            <div class="control-group">
                 <label>Gamma (&gamma;)</label>
                 <input type="number" id="gamma" value="1.4" min="1.1" max="1.7" step="0.01">
+            </div>
+            <div class="control-group">
+                <label>Throat Radius (mm)</label>
+                <input type="text" id="throat-radius" value="" placeholder="(normalized)" style="width:100px;">
             </div>
         </div>
 
@@ -302,6 +310,17 @@
                         <input type="text" id="sivells-theta" value="auto" style="width:55px;">
                     </label>
                     <span class="type-note">upstream contour only (throat &rarr; inflection)</span>
+                </div>
+            </div>
+            <div class="type-card disabled" style="--type-color: #cccccc;">
+                <input type="checkbox" id="chk-custom">
+                <span class="color-swatch" style="background: #cccccc;"></span>
+                <span class="type-label">Custom</span>
+                <div class="type-params" id="params-custom">
+                    <label>CSV file:
+                        <input type="file" id="custom-file" accept=".csv,.txt" style="width:200px;">
+                    </label>
+                    <span class="type-note">Two columns: x, y (throat at min y)</span>
                 </div>
             </div>
         </div>
@@ -369,10 +388,11 @@
             mln: '#ffd93d',
             tic: '#bb86fc',
             sivells: '#ff9f43',
+            custom: '#cccccc',
         };
 
         // Checkbox toggle: enable/disable card styling
-        for (const type of ['conical', 'rao', 'mln', 'tic', 'sivells']) {
+        for (const type of ['conical', 'rao', 'mln', 'tic', 'sivells', 'custom']) {
             const chk = document.getElementById('chk-' + type);
             const card = chk.closest('.type-card');
             chk.addEventListener('change', () => {
@@ -387,7 +407,7 @@
 
         function getEnabledTypes() {
             const types = [];
-            for (const t of ['conical', 'rao', 'mln', 'tic', 'sivells']) {
+            for (const t of ['conical', 'rao', 'mln', 'tic', 'sivells', 'custom']) {
                 if (document.getElementById('chk-' + t).checked) types.push(t);
             }
             return types;
@@ -503,6 +523,44 @@ def styled_axes(fig, ax):
         // Store last computation results for exports
         let lastResults = null;
 
+        // --- Bidirectional sync: M_exit <-> A/A* ---
+        let syncLock = false;
+        const mExitEl = document.getElementById('m-exit');
+        const arEl = document.getElementById('area-ratio');
+        const gammaEl = document.getElementById('gamma');
+
+        async function machToAR() {
+            if (syncLock) return;
+            syncLock = true;
+            try {
+                const M = parseFloat(mExitEl.value);
+                const g = parseFloat(gammaEl.value);
+                if (M > 1 && g > 1) {
+                    const ar = await pyodide.runPythonAsync(
+                        `from nozzle.gas import area_mach_ratio; float(area_mach_ratio(${M}, ${g}))`);
+                    arEl.value = parseFloat(ar).toFixed(4);
+                }
+            } catch(e) { /* ignore sync errors */ }
+            syncLock = false;
+        }
+        async function arToMach() {
+            if (syncLock) return;
+            syncLock = true;
+            try {
+                const ar = parseFloat(arEl.value);
+                const g = parseFloat(gammaEl.value);
+                if (ar > 1 && g > 1) {
+                    const M = await pyodide.runPythonAsync(
+                        `from nozzle.gas import mach_from_area_ratio; float(mach_from_area_ratio(${ar}, ${g}))`);
+                    mExitEl.value = parseFloat(M).toFixed(4);
+                }
+            } catch(e) { /* ignore sync errors */ }
+            syncLock = false;
+        }
+        mExitEl.addEventListener('input', machToAR);
+        gammaEl.addEventListener('input', machToAR);
+        arEl.addEventListener('input', arToMach);
+
         // --- 5. Run design on click ---
         runBtn.addEventListener('click', async () => {
             const enabledTypes = getEnabledTypes();
@@ -513,6 +571,7 @@ def styled_axes(fig, ax):
 
             const mExit   = parseFloat(document.getElementById('m-exit').value);
             const gamma   = parseFloat(document.getElementById('gamma').value);
+            const areaRatio = parseFloat(document.getElementById('area-ratio').value);
             const halfAng = parseFloat(document.getElementById('half-angle').value);
             const bellFr  = parseFloat(document.getElementById('bell-frac').value) / 100;
             const nCharsMln = parseInt(document.getElementById('n-chars-mln').value);
@@ -522,10 +581,33 @@ def styled_axes(fig, ax):
             const sivellsThetaRaw = document.getElementById('sivells-theta').value.trim();
             const sivellsTheta = (sivellsThetaRaw === 'auto' || sivellsThetaRaw === '')
                 ? 'None' : parseFloat(sivellsThetaRaw);
+            const throatRadiusRaw = document.getElementById('throat-radius').value.trim();
+            const throatRadiusMM = (throatRadiusRaw === '') ? null : parseFloat(throatRadiusRaw);
+
+            // Read custom CSV file if enabled
+            let customCSVText = null;
+            if (enabledTypes.includes('custom')) {
+                const fileInput = document.getElementById('custom-file');
+                if (!fileInput.files || fileInput.files.length === 0) {
+                    setStatus('Custom type enabled but no CSV file selected.', 'error');
+                    return;
+                }
+                customCSVText = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsText(fileInput.files[0]);
+                });
+            }
 
             runBtn.disabled = true;
             runBtn.textContent = 'Computing...';
             setStatus('Running nozzle design...', 'loading');
+
+            // Write custom CSV to Pyodide FS if provided
+            if (customCSVText !== null) {
+                pyodide.FS.writeFile('/tmp/custom.csv', customCSVText);
+            }
 
             // Build the Python code string dynamically based on enabled types
             let pyCode = `
@@ -536,8 +618,13 @@ from nozzle.analysis import conical_performance, rao_performance, moc_performanc
 
 M_exit   = ${mExit}
 gamma    = ${gamma}
-area_ratio = area_mach_ratio(M_exit, gamma)
+area_ratio = ${areaRatio}
 Cf_ideal = thrust_coefficient_ideal(M_exit, gamma)
+
+throat_radius_mm = ${throatRadiusMM === null ? 'None' : throatRadiusMM}
+scale = throat_radius_mm if throat_radius_mm is not None else 1.0
+x_label = 'x [mm]' if throat_radius_mm else 'x / r*'
+y_label = 'y [mm]' if throat_radius_mm else 'y / r*'
 
 nozzles = []  # list of dicts: {name, x, y, color, perf, csv, has_mesh, mesh}
 exit_data = None  # (y_exit, M_dist, theta_dist, name) for exit plane plot
@@ -670,6 +757,38 @@ except Exception as e:
 `;
             }
 
+            if (enabledTypes.includes('custom')) {
+                pyCode += `
+# --- Custom CSV ---
+from nozzle.contours import load_contour_csv
+try:
+    x_cust, y_cust = load_contour_csv('/tmp/custom.csv')
+    perf_cust = quasi_1d_performance(x_cust, y_cust, gamma)
+    csv_cust = "# custom contour\\n# x/r*,y/r*\\n"
+    for xi, yi in zip(x_cust, y_cust):
+        csv_cust += f"{xi:.8f},{yi:.8f}\\n"
+    nozzles.append({
+        'name': 'Custom',
+        'x': x_cust.tolist(), 'y': y_cust.tolist(),
+        'color': '${TYPE_COLORS.custom}',
+        'perf': {'Cf': round(perf_cust['Cf'], 4),
+                 'pct': round(perf_cust['Cf']/Cf_ideal*100, 1),
+                 'note': f"\\u03bb={perf_cust['lambda']:.4f} (quasi-1D)"},
+        'csv': csv_cust,
+        'csv_name': 'custom',
+    })
+except Exception as e:
+    nozzles.append({
+        'name': 'Custom',
+        'x': [], 'y': [],
+        'color': '${TYPE_COLORS.custom}',
+        'perf': {'Cf': 0, 'pct': 0, 'note': f"Error: {e}"},
+        'csv': '',
+        'csv_name': 'custom',
+    })
+`;
+            }
+
             // Plotting code
             pyCode += `
 # --- Contour plot ---
@@ -677,11 +796,13 @@ fig1, ax1 = plt.subplots(figsize=(7, 3.5))
 styled_axes(fig1, ax1)
 for nz in nozzles:
     if len(nz['x']) > 0:
-        ax1.plot(nz['x'], nz['y'], '-', color=nz['color'], lw=1.8, label=nz['name'])
-        ax1.plot(nz['x'], [-v for v in nz['y']], '-', color=nz['color'], lw=1.8)
+        xs = [v * scale for v in nz['x']]
+        ys = [v * scale for v in nz['y']]
+        ax1.plot(xs, ys, '-', color=nz['color'], lw=1.8, label=nz['name'])
+        ax1.plot(xs, [-v for v in ys], '-', color=nz['color'], lw=1.8)
 ax1.axhline(0, color='#555', lw=0.5, ls='--')
-ax1.set_xlabel('x / r*')
-ax1.set_ylabel('y / r*')
+ax1.set_xlabel(x_label)
+ax1.set_ylabel(y_label)
 ax1.set_title(f'Nozzle Contours  (M = {M_exit:.1f},  A/A* = {area_ratio:.3f})')
 ax1.set_aspect('equal')
 ax1.legend(fontsize=8)
@@ -696,11 +817,12 @@ if exit_data is not None:
     fig2, axes2 = plt.subplots(1, 2, figsize=(7, 3))
     for a in axes2: styled_axes(fig2, a)
     if len(y_ep) > 1:
-        axes2[0].plot(y_ep, M_ep, '-o', color='#4ecdc4', ms=2)
-        axes2[0].set_xlabel('y / r*'); axes2[0].set_ylabel('Mach')
+        y_ep_s = [v * scale for v in y_ep]
+        axes2[0].plot(y_ep_s, M_ep, '-o', color='#4ecdc4', ms=2)
+        axes2[0].set_xlabel(y_label); axes2[0].set_ylabel('Mach')
         axes2[0].set_title(f'Exit Mach ({ep_name})'); axes2[0].grid(True, alpha=0.15, color='#555')
-        axes2[1].plot(y_ep, theta_ep, '-o', color='#ff6b6b', ms=2)
-        axes2[1].set_xlabel('y / r*'); axes2[1].set_ylabel('\\u03b8 [deg]')
+        axes2[1].plot(y_ep_s, theta_ep, '-o', color='#ff6b6b', ms=2)
+        axes2[1].set_xlabel(y_label); axes2[1].set_ylabel('\\u03b8 [deg]')
         axes2[1].set_title(f'Exit Flow Angle ({ep_name})'); axes2[1].grid(True, alpha=0.15, color='#555')
     fig2.tight_layout()
     exit_img = fig_to_base64(fig2)
@@ -727,42 +849,48 @@ for i in range(len(valid_nozzles)):
         dy = ya - yn
         area_dev = np.where(yn > 0, (ya / yn) ** 2 - 1, 0.0)
 
+        xc_s = xc * scale
+        yn_s = yn * scale
+        ya_s = ya * scale
+        dy_s = dy * scale
+        dy_label = '\\u0394y [mm]' if throat_radius_mm else '\\u0394y / r*'
+
         fig_t, axes_t = plt.subplots(1, 3, figsize=(14, 3.2))
         for a in axes_t:
             styled_axes(fig_t, a)
 
         # Panel 1: contour overlay
         ax = axes_t[0]
-        ax.plot(xc, yn, '-', color=nz_a['color'], lw=1.5, label=nz_a['name'])
-        ax.plot(xc, ya, '--', color=nz_b['color'], lw=1.5, label=nz_b['name'])
-        ax.fill_between(xc, yn, ya, color='gray', alpha=0.2)
-        ax.set_xlabel('x / r*'); ax.set_ylabel('y / r*')
+        ax.plot(xc_s, yn_s, '-', color=nz_a['color'], lw=1.5, label=nz_a['name'])
+        ax.plot(xc_s, ya_s, '--', color=nz_b['color'], lw=1.5, label=nz_b['name'])
+        ax.fill_between(xc_s, yn_s, ya_s, color='gray', alpha=0.2)
+        ax.set_xlabel(x_label); ax.set_ylabel(y_label)
         ax.set_title('Contour Overlay')
         ax.set_aspect('equal'); ax.legend(fontsize=7)
         ax.grid(True, alpha=0.15, color='#555')
 
         # Panel 2: delta radius
         ax = axes_t[1]
-        ax.plot(xc, dy, '-', color='#ccc', lw=0.8)
+        ax.plot(xc_s, dy_s, '-', color='#ccc', lw=0.8)
         ax.axhline(0, color='#555', lw=0.3)
-        ax.fill_between(xc, 0, dy, where=(dy >= 0), color='#4a8eff', alpha=0.4,
+        ax.fill_between(xc_s, 0, dy_s, where=(dy_s >= 0), color='#4a8eff', alpha=0.4,
                         label=f'{nz_b["name"]} wider')
-        ax.fill_between(xc, 0, dy, where=(dy < 0), color='#ff6b6b', alpha=0.4,
+        ax.fill_between(xc_s, 0, dy_s, where=(dy_s < 0), color='#ff6b6b', alpha=0.4,
                         label=f'{nz_a["name"]} wider')
-        dy_max = max(abs(dy.max()), abs(dy.min()), 1e-6)
+        dy_max = max(abs(dy_s.max()), abs(dy_s.min()), 1e-6)
         ax.set_ylim(-1.5 * dy_max, 1.5 * dy_max)
-        ax.set_xlabel('x / r*'); ax.set_ylabel('\\u0394y / r*')
+        ax.set_xlabel(x_label); ax.set_ylabel(dy_label)
         ax.set_title('Delta Radius'); ax.legend(fontsize=7)
         ax.grid(True, alpha=0.15, color='#555')
 
         # Panel 3: area ratio deviation
         ax = axes_t[2]
         area_pct = area_dev * 100
-        ax.plot(xc, area_pct, '-', color='#ccc', lw=0.8)
+        ax.plot(xc_s, area_pct, '-', color='#ccc', lw=0.8)
         ax.axhline(0, color='#555', lw=0.3)
-        ax.fill_between(xc, 0, area_pct, where=(area_pct >= 0), color='#4a8eff', alpha=0.4)
-        ax.fill_between(xc, 0, area_pct, where=(area_pct < 0), color='#ff6b6b', alpha=0.4)
-        ax.set_xlabel('x / r*'); ax.set_ylabel('\\u0394A/A [%]')
+        ax.fill_between(xc_s, 0, area_pct, where=(area_pct >= 0), color='#4a8eff', alpha=0.4)
+        ax.fill_between(xc_s, 0, area_pct, where=(area_pct < 0), color='#ff6b6b', alpha=0.4)
+        ax.set_xlabel(x_label); ax.set_ylabel('\\u0394A/A [%]')
         ax.set_title('Area Ratio Deviation')
         ax.grid(True, alpha=0.15, color='#555')
 
@@ -775,20 +903,43 @@ for i in range(len(valid_nozzles)):
         break
 
 # --- Build result ---
+# Add dimensional info if throat radius is set
+dim_info = None
+if throat_radius_mm is not None:
+    r_exit_mm = np.sqrt(area_ratio) * throat_radius_mm
+    dim_info = {
+        'throat_radius_mm': round(throat_radius_mm, 4),
+        'exit_radius_mm': round(r_exit_mm, 4),
+        'exit_diameter_mm': round(2 * r_exit_mm, 4),
+        'throat_area_mm2': round(np.pi * throat_radius_mm**2, 4),
+    }
+
+# Add dimensional columns to CSV exports when scaled
+csv_exports = []
+for nz in nozzles:
+    csv_out = nz['csv']
+    if throat_radius_mm is not None and len(nz['x']) > 0:
+        csv_out = f"# throat_radius={throat_radius_mm:.4f} mm\\n"
+        csv_out += "# x/r*,y/r*,x_mm,y_mm\\n"
+        for xi, yi in zip(nz['x'], nz['y']):
+            csv_out += f"{xi:.8f},{yi:.8f},{xi*throat_radius_mm:.6f},{yi*throat_radius_mm:.6f}\\n"
+    csv_exports.append(csv_out)
+
 result = {
     'contour_img': contour_img,
     'exit_img': exit_img,
     'tolerance_imgs': tolerance_imgs,
     'Cf_ideal': round(Cf_ideal, 4),
     'area_ratio': round(area_ratio, 4),
+    'dim_info': dim_info,
     'nozzles': [{
         'name': nz['name'],
         'Cf': nz['perf']['Cf'],
         'pct': nz['perf']['pct'],
         'note': nz['perf']['note'],
-        'csv': nz['csv'],
+        'csv': csv_exports[i],
         'csv_name': nz['csv_name'],
-    } for nz in nozzles],
+    } for i, nz in enumerate(nozzles)],
 }
 json.dumps(result)
 `;
@@ -824,8 +975,13 @@ json.dumps(result)
                 }
 
                 // Update performance table
+                let idealNote = `A/A* = ${data.area_ratio}`;
+                if (data.dim_info) {
+                    const di = data.dim_info;
+                    idealNote += ` | r*=${di.throat_radius_mm}mm, D_exit=${di.exit_diameter_mm}mm`;
+                }
                 let tableHTML = `<tr><td>1D Ideal</td><td>${data.Cf_ideal}</td>
-                    <td>100.0%</td><td>A/A* = ${data.area_ratio}</td></tr>`;
+                    <td>100.0%</td><td>${idealNote}</td></tr>`;
                 for (const nz of data.nozzles) {
                     tableHTML += `<tr><td>${nz.name}</td><td>${nz.Cf}</td>
                         <td>${nz.pct}%</td><td>${nz.note}</td></tr>`;
@@ -879,16 +1035,25 @@ json.dumps(result)
             const sivellsTheta = document.getElementById('sivells-theta').value.trim();
 
             let yaml = `# Generated by Nozzle web viewer\n`;
-            yaml += `# To run: pip install -e . && nozzle run this_file.yaml\n\n`;
+            yaml += `# To run: pip install -e . && nozzle run this_file.yaml\n`;
+            if (throatRadiusMM !== null) {
+                yaml += `# throat_radius: ${throatRadiusMM} mm\n`;
+            }
+            yaml += `\n`;
             yaml += `configs:\n`;
 
             const enabledTypes = getEnabledTypes();
+
+            // Helper to add throat_radius line when dimensional
+            const yamlThroat = throatRadiusMM !== null
+                ? `    throat_radius: ${throatRadiusMM} mm\n` : '';
 
             if (enabledTypes.includes('conical')) {
                 yaml += `  conical_${halfAng}:\n`;
                 yaml += `    type: conical\n`;
                 yaml += `    gamma: ${gamma}\n`;
                 yaml += `    M_exit: ${mExit}\n`;
+                yaml += yamlThroat;
                 yaml += `    half_angle_deg: ${halfAng}\n\n`;
             }
             if (enabledTypes.includes('rao')) {
@@ -923,6 +1088,14 @@ json.dumps(result)
                     yaml += `    inflection_angle_deg: ${sivellsTheta}\n`;
                 }
                 yaml += `\n`;
+            }
+
+            if (enabledTypes.includes('custom')) {
+                yaml += `  custom:\n`;
+                yaml += `    type: custom\n`;
+                yaml += `    gamma: ${gamma}\n`;
+                yaml += `    M_exit: ${mExit}\n`;
+                yaml += `    contour_file: custom_contour.csv  # update path\n\n`;
             }
 
             yaml += `outputs:\n`;

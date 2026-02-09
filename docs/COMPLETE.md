@@ -4,6 +4,23 @@ Move items here from TODO.md when done. Most recent at top.
 
 ---
 
+## Tier 1 features: exit pressure, convergent section, web enhancements
+Four features landed together:
+- **Exit pressure as input**: `exit_pressure_ratio` in config, lowest priority after
+  exit_radius/M_exit/area_ratio. 8 new tests in test_config.py.
+- **Convergent section geometry**: `convergent_section()` in contours.py — 4-segment
+  wall (cylinder + upstream arc + straight + downstream arc) with auto-scaling radii.
+  Optional `convergent:` sub-dict in config, CLI prepends to any nozzle type.
+  13 new tests in test_convergent.py.
+- **Custom contour in web viewer**: File upload card, CSV written to Pyodide FS,
+  processed via load_contour_csv + quasi_1d_performance, appears in plots/table.
+- **Physical units in web viewer**: Throat radius (mm) input, all plots/exports
+  scale to mm when set, performance table shows exit diameter and throat area.
+- **Expansion ratio in web viewer**: A/A* input syncs bidirectionally with M_exit.
+
+380 tests, all passing.
+*Completed 2026-02-08*
+
 ## Tolerance band visualization
 `plot_tolerance_band()` in plots.py — 3-panel comparison (contour overlay, delta
 radius, area ratio deviation %). CLI generates tolerance plots for every contour

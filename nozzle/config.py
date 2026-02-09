@@ -158,7 +158,7 @@ def build_nozzle_spec(cfg):
         throat_radius_m : float or None — physical throat radius in meters
         Additional keys depend on type.
     """
-    from nozzle.gas import area_mach_ratio, mach_from_area_ratio
+    from nozzle.gas import area_mach_ratio, mach_from_area_ratio, mach_from_pressure_ratio
 
     gamma = float(cfg.get('gamma', 1.4))
 
@@ -186,6 +186,17 @@ def build_nozzle_spec(cfg):
         # If M_exit not set, compute from area_ratio
         if M_exit is None:
             M_exit = mach_from_area_ratio(area_ratio, gamma=gamma)
+    if 'exit_pressure_ratio' in cfg:
+        p_ratio = float(cfg['exit_pressure_ratio'])
+        if p_ratio <= 0 or p_ratio >= 1:
+            raise ValueError(
+                f"exit_pressure_ratio must be between 0 and 1 (exclusive), "
+                f"got {p_ratio}"
+            )
+        if M_exit is None:
+            M_exit = mach_from_pressure_ratio(p_ratio, gamma)
+        if area_ratio is None:
+            area_ratio = area_mach_ratio(M_exit, gamma)
     if area_ratio is None:
         area_ratio = 10.0  # default
     if M_exit is None:
@@ -233,5 +244,15 @@ def build_nozzle_spec(cfg):
     elif ntype == 'custom':
         spec['contour_file'] = cfg.get('contour_file', '')
         spec['n_chars'] = int(cfg.get('n_chars', 30))
+
+    # Optional convergent section (applies to any nozzle type)
+    if 'convergent' in cfg and isinstance(cfg['convergent'], dict):
+        conv = cfg['convergent']
+        spec['convergent'] = {
+            'contraction_ratio': float(conv.get('contraction_ratio', 3.0)),
+            'convergent_half_angle_deg': float(conv.get('half_angle_deg', 30.0)),
+            'rc_upstream': float(conv.get('rc_upstream', 1.5)),
+            'rc_downstream': float(conv.get('rc_downstream', 0.382)),
+        }
 
     return spec
